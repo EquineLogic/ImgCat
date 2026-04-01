@@ -27,7 +27,7 @@
 		href="/"
 		class="text-6xl sm:text-7xl font-extrabold mb-14 pb-2
                leading-normal
-               bg-gradient-to-r from-tw-purple to-tw-pink
+               bg-linear-to-r from-tw-purple to-tw-pink
                bg-clip-text text-transparent
                drop-shadow-[0_0_12px_rgba(0,245,255,0.5)]
                no-underline hover:drop-shadow-[0_0_20px_rgba(0,245,255,0.7)]
