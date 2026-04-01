@@ -13,6 +13,10 @@ pub async fn register(
     State(app): State<AppData>,
     Json(payload): Json<RegisterRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    if let Err(e) = payload.validate() {
+        return Err((StatusCode::BAD_REQUEST, e));
+    }
+
     let hashed_password = salt_and_hash_password(&payload.password);
 
     let mut tx = app.pool.begin().await.map_err(|e| {

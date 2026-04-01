@@ -4,11 +4,39 @@ use rand::{distr::SampleString, rng};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+fn is_valid_password(password: &str) -> bool {
+    let has_uppercase = password.chars().any(|c| c.is_uppercase());
+    let has_lowercase = password.chars().any(|c| c.is_lowercase());
+    let has_digit = password.chars().any(|c| c.is_digit(10));
+    let has_symbol = password.chars().any(|c| !c.is_alphanumeric());
+    let is_long_enough = password.len() >= 8;
+
+    has_uppercase && has_lowercase && has_digit && has_symbol && is_long_enough
+}
+
 #[derive(Deserialize)]
 pub struct RegisterRequest {
     pub username: String,
     pub password: String,
     pub name: String,
+}
+
+impl RegisterRequest {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.username.len() < 5 {
+            return Err("Username must be at least 5 characters".to_string());
+        }
+        if self.name.len() < 5 {
+            return Err("Display name must be at least 5 characters".to_string());
+        }
+        if self.password.len() < 8 {
+            return Err("Password must be at least 8 characters".to_string());
+        }
+        if !is_valid_password(&self.password) {
+            return Err("Password must contain at least one uppercase letter, one lowercase letter, one digit, and one special character".to_string());
+        }
+        Ok(())
+    }
 }
 
 #[derive(Deserialize)]
