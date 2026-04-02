@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
+	import { user } from '$lib/stores/auth';
+
 	let message = $state('');
 	let isError = $state(false);
 	let password = $state('');
@@ -53,9 +56,16 @@
 			})
 		});
 
+		if (res.ok) {
+			const data = await res.json();
+			user.set(data);
+			goto('/home');
+			return;
+		}
+
 		const text = await res.text();
 		message = text;
-		isError = !res.ok;
+		isError = true;
 	}
 </script>
 

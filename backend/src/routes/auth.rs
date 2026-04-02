@@ -179,6 +179,42 @@ pub async fn sign_in(
     Ok(response)
 }
 
+pub async fn sign_out(
+    State(app): State<AppData>,
+    user: LoggedInUser,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let row = sqlx::query("DELETE FROM sessions WHERE username = $1")
+        .bind(&user.username)
+        .execute(&app.pool)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Database error: {e}"),
+            )
+        })?;
+
+    if row.rows_affected() == 0 {
+        return Err((StatusCode::UNAUTHORIZED, "No active session".to_string()));
+    }
+
+    // Clear the cookie by setting an expired cookie
+    let cookie = "session_token=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0";
+
+    let mut response = (StatusCode::OK, "Signed out successfully").into_response();
+    response.headers_mut().insert(
+        SET_COOKIE,
+        HeaderValue::from_str(cookie).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to create cookie: {e}"),
+            )
+        })?,
+    );
+
+    Ok(response)
+}
+
 pub async fn check_auth(user: LoggedInUser) -> Result<impl IntoResponse, (StatusCode, String)> {
     Ok(Json(user))
 }

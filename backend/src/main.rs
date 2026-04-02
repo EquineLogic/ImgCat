@@ -54,6 +54,9 @@ async fn main() {
         .route("/register", post(routes::auth::register))
         .route("/signin", post(routes::auth::sign_in))
         .route("/check_auth", get(routes::auth::check_auth))
+        .route("/signout", post(routes::auth::sign_out))
+        .route("/create_folder", post(routes::filesystem::create_folder))
+        .route("/list_folders", get(routes::filesystem::list_folders))
         .with_state(AppData { pool, reqwest })
         .layer(cors);
 

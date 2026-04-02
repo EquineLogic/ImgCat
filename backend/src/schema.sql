@@ -12,7 +12,7 @@ CREATE TABLE filesystem (
     parent_id UUID REFERENCES filesystem(id) ON DELETE RESTRICT,
     path LTREE,
     
-    size_bytes BIGINT DEFAULT 0 CHECK (size_bytes > 1000000),
+    size_bytes BIGINT DEFAULT 0 CHECK (size_bytes <= 1000000),
     s3_fileid TEXT,
     mime_type TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
