@@ -57,6 +57,8 @@ async fn main() {
         .route("/signout", post(routes::auth::sign_out))
         .route("/create_folder", post(routes::filesystem::create_folder))
         .route("/list_folders", get(routes::filesystem::list_folders))
+        .route("/delete_folder", post(routes::filesystem::delete_folder))
+        .route("/rename_folder", post(routes::filesystem::rename_folder))
         .with_state(AppData { pool, reqwest })
         .layer(cors);
 

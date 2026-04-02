@@ -28,10 +28,10 @@ DECLARE
 BEGIN
     -- Find the parent's path
     IF NEW.parent_id IS NULL THEN
-        NEW.path = NEW.name::ltree;
+        NEW.path = regexp_replace(replace(NEW.name, ' ', '_'), '[^a-zA-Z0-9_]', '', 'g')::ltree;
     ELSE
         SELECT path INTO parent_path FROM filesystem WHERE id = NEW.parent_id;
-        NEW.path = parent_path || NEW.name::ltree;
+        NEW.path = parent_path || regexp_replace(replace(NEW.name, ' ', '_'), '[^a-zA-Z0-9_]', '', 'g')::ltree;
     END IF;
 
     -- If the path actually changed, update all descendants

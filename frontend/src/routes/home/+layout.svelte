@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import Modal from '$lib/components/Modal.svelte';
-	import { fetchFolders } from '$lib/stores/folders';
+	import { fetchFolders, currentFolderId } from '$lib/stores/folders';
 
 	let { children } = $props();
 
@@ -38,7 +38,7 @@
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			credentials: 'include',
-			body: JSON.stringify({ name: folderName.trim(), parent_id: null })
+			body: JSON.stringify({ name: folderName.trim(), parent_id: $currentFolderId })
 		});
 		if (!res.ok) {
 			folderError = await res.text();
