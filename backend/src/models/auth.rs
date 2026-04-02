@@ -1,7 +1,12 @@
+use crate::AppData;
+use axum::extract::FromRequestParts;
+use axum::http::StatusCode;
+use axum_extra::extract::CookieJar;
 use chrono::Utc;
 use rand::distr::Alphanumeric;
 use rand::{distr::SampleString, rng};
 use serde::{Deserialize, Serialize};
+use sqlx::Row;
 use std::time::Duration;
 
 fn is_valid_password(password: &str) -> bool {
@@ -72,5 +77,49 @@ impl Session {
             .map_err(|e| format!("Failed to create session: {e}"))?;
 
         Ok(Self { username, token })
+    }
+}
+
+#[derive(Serialize)]
+pub struct LoggedInUser {
+    pub username: String,
+}
+
+impl FromRequestParts<AppData> for LoggedInUser {
+    type Rejection = (StatusCode, String);
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        state: &AppData,
+    ) -> Result<Self, Self::Rejection> {
+        let jar = CookieJar::from_request_parts(parts, state)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    format!("Failed to parse cookies: {e}"),
+                )
+            })?;
+
+        let session_token = jar
+            .get("session_token")
+            .map(|c| c.value())
+            .ok_or((StatusCode::UNAUTHORIZED, "No session token".to_string()))?;
+
+        let row =
+            sqlx::query("SELECT username FROM sessions WHERE token = $1 AND expires_at > NOW()")
+                .bind(&session_token)
+                .fetch_one(&state.pool)
+                .await
+                .map_err(|_| {
+                    (
+                        StatusCode::UNAUTHORIZED,
+                        "Invalid or expired session token".to_string(),
+                    )
+                })?;
+
+        let username: String = row.get("username");
+
+        Ok(LoggedInUser { username })
     }
 }

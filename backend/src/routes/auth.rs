@@ -1,10 +1,10 @@
 use crate::AppData;
-use crate::models::auth::{RegisterRequest, Session, SignInRequest};
+use crate::models::auth::{LoggedInUser, RegisterRequest, Session, SignInRequest};
 use argon2::{
     Argon2, PasswordHasher, PasswordVerifier,
     password_hash::{PasswordHash, SaltString, rand_core::OsRng},
 };
-use axum::http::StatusCode;
+use axum::http::{HeaderValue, StatusCode, header::SET_COOKIE};
 use axum::{Json, extract::State, response::IntoResponse};
 use sqlx;
 use sqlx::Row;
@@ -54,7 +54,32 @@ pub async fn register(
         )
     })?;
 
-    Ok((StatusCode::CREATED, Json(session)))
+    // Make a cookie for sending session token
+    // TODO: Add Secure back once not in local development
+    let cookie = format!(
+        "session_token={}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800",
+        session.token
+    );
+
+    // Create response and insert the header
+    let mut response = (
+        StatusCode::OK,
+        Json(LoggedInUser {
+            username: session.username,
+        }),
+    )
+        .into_response();
+    response.headers_mut().insert(
+        SET_COOKIE,
+        HeaderValue::from_str(&cookie).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to create cookie: {e}"),
+            )
+        })?,
+    );
+
+    Ok(response)
 }
 
 fn salt_and_hash_password(password: &str) -> String {
@@ -127,5 +152,33 @@ pub async fn sign_in(
         )
     })?;
 
-    Ok((StatusCode::OK, Json(session)))
+    // Make a cookie for sending session token
+    let cookie = format!(
+        "session_token={}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800",
+        session.token
+    );
+
+    // Create response and insert the header
+    let mut response = (
+        StatusCode::OK,
+        Json(LoggedInUser {
+            username: session.username,
+        }),
+    )
+        .into_response();
+    response.headers_mut().insert(
+        SET_COOKIE,
+        HeaderValue::from_str(&cookie).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to create cookie: {e}"),
+            )
+        })?,
+    );
+
+    Ok(response)
+}
+
+pub async fn check_auth(user: LoggedInUser) -> Result<impl IntoResponse, (StatusCode, String)> {
+    Ok(Json(user))
 }

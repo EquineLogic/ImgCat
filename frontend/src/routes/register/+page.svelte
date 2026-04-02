@@ -45,6 +45,7 @@
 		const res = await fetch('http://localhost:3000/register', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
+			credentials: 'include',
 			body: JSON.stringify({
 				username: formData.get('username'),
 				name: formData.get('name'),
@@ -63,7 +64,7 @@
 		href="/"
 		class="text-6xl sm:text-7xl font-extrabold mb-14 pb-2
                leading-normal
-               bg-gradient-to-r from-tw-purple to-tw-pink
+               bg-linear-to-r from-tw-purple to-tw-pink
                bg-clip-text text-transparent
                drop-shadow-[0_0_12px_rgba(0,245,255,0.5)]
                no-underline hover:drop-shadow-[0_0_20px_rgba(0,245,255,0.7)]
@@ -135,7 +136,8 @@
 			<ul class="flex flex-col gap-1 text-xs">
 				{#each rules as rule}
 					<li class={rule.pass ? 'text-green-400' : 'text-white/40'}>
-						{rule.pass ? '\u2713' : '\u2717'} {rule.label}
+						{rule.pass ? '\u2713' : '\u2717'}
+						{rule.label}
 					</li>
 				{/each}
 			</ul>
@@ -157,7 +159,10 @@
 
 		<p class="text-tw-yellow text-lg text-center">
 			Already have an account?
-			<a href="/signin" class="text-tw-neon font-semibold hover:text-tw-pink transition-colors duration-200">
+			<a
+				href="/signin"
+				class="text-tw-neon font-semibold hover:text-tw-pink transition-colors duration-200"
+			>
 				Sign In
 			</a>
 		</p>

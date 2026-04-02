@@ -10,6 +10,7 @@
 		const res = await fetch('http://localhost:3000/signin', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
+			credentials: 'include',
 			body: JSON.stringify({
 				username: formData.get('username'),
 				password: formData.get('password')
@@ -88,7 +89,10 @@
 
 		<p class="text-tw-yellow text-lg text-center">
 			Don't have an account?
-			<a href="/register" class="text-tw-neon font-semibold hover:text-tw-pink transition-colors duration-200">
+			<a
+				href="/register"
+				class="text-tw-neon font-semibold hover:text-tw-pink transition-colors duration-200"
+			>
 				Register
 			</a>
 		</p>

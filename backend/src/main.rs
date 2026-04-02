@@ -45,13 +45,15 @@ async fn main() {
 
     let cors = CorsLayer::new()
         .allow_origin("http://localhost:5173".parse::<HeaderValue>().unwrap())
-        .allow_methods([Method::POST])
+        .allow_methods([Method::POST, Method::GET])
+        .allow_credentials(true)
         .allow_headers([header::CONTENT_TYPE]);
 
     let app = Router::new()
         .route("/", get(|| async { "Hello, World!" }))
         .route("/register", post(routes::auth::register))
         .route("/signin", post(routes::auth::sign_in))
+        .route("/check_auth", get(routes::auth::check_auth))
         .with_state(AppData { pool, reqwest })
         .layer(cors);
 
