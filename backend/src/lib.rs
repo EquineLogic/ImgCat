@@ -1,6 +1,7 @@
 pub mod config;
 pub mod models;
 pub mod routes;
+pub mod ops;
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
