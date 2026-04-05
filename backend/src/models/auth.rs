@@ -123,3 +123,44 @@ impl FromRequestParts<AppData> for LoggedInUser {
         Ok(LoggedInUser { username })
     }
 }
+
+#[derive(Deserialize)]
+pub struct ChangeUsername {
+    pub username: String,
+}
+
+impl ChangeUsername {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.username.len() < 5 {
+            return Err("Username must be at least 5 characters".to_string());
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Deserialize)]
+pub struct ChangePassword {
+    pub curr_password: String,
+    pub new_password: String,
+}
+
+impl ChangePassword {
+    pub fn validate(&self) -> Result<(), String> {
+        if !is_valid_password(&self.new_password) {
+            return Err("Password must contain at least one uppercase letter, one lowercase letter, one digit, and one special character".to_string());
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Serialize)]
+pub struct TrashRetention {
+    pub days: i32,
+}
+
+#[derive(Deserialize)]
+pub struct SetTrashRetention {
+    pub days: i32,
+}

@@ -6,12 +6,13 @@ CREATE EXTENSION IF NOT EXISTS "ltree";
 CREATE TABLE users (
     username TEXT PRIMARY KEY, 
     name TEXT NOT NULL, 
-    password TEXT NOT NULL
+    password TEXT NOT NULL,
+    trash_retention_days INTEGER NOT NULL DEFAULT 30
 );
 
 CREATE TABLE sessions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(), 
-    username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE, 
+    username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE ON UPDATE CASCADE, 
     token TEXT NOT NULL, 
     created_at TIMESTAMPTZ DEFAULT NOW(), 
     expires_at TIMESTAMPTZ NOT NULL

@@ -1,6 +1,4 @@
-mod config;
-mod models;
-mod routes;
+use backend::{AppData, routes};
 
 use axum::{
     Router,
@@ -8,17 +6,7 @@ use axum::{
     routing::{get, post},
 };
 use reqwest::header;
-use sqlx::postgres::PgPoolOptions;
 use tower_http::cors::CorsLayer;
-
-pub type Error = Box<dyn std::error::Error + Send + Sync>;
-
-#[derive(Clone)]
-pub struct AppData {
-    pool: sqlx::PgPool,
-    s3: aws_sdk_s3::Client,
-    bucket: String,
-}
 
 #[tokio::main]
 async fn main() {
@@ -27,31 +15,9 @@ async fn main() {
         .filter_level(log::LevelFilter::Info)
         .init();
 
-    let cfg = &*config::CONFIG;
-
-    let pool = PgPoolOptions::new()
-        .max_connections(cfg.max_db_connections)
-        .connect(&cfg.postgres_url)
+    let state = AppData::build()
         .await
-        .expect("Could not initialize connection");
-
-    let s3_config = aws_sdk_s3::Config::builder()
-        .endpoint_url(cfg.object_storage.endpoint.as_deref().unwrap())
-        .credentials_provider(aws_sdk_s3::config::Credentials::new(
-            cfg.object_storage.access_key.as_deref().unwrap(),
-            cfg.object_storage.secret_key.as_deref().unwrap(),
-            None,
-            None,
-            "Static",
-        ))
-        .region(aws_sdk_s3::config::Region::new("us-east-1"))
-        .force_path_style(true)
-        .behavior_version_latest()
-        .build();
-
-    let s3 = aws_sdk_s3::Client::from_conf(s3_config);
-
-    let bucket = cfg.object_storage.bucket.clone().unwrap();
+        .expect("Failed to initialize app data");
 
     log::info!("Starting server on http://localhost:3000");
 
@@ -84,7 +50,13 @@ async fn main() {
             "/delete_trash_entry",
             post(routes::filesystem::delete_trash_entry),
         )
-        .with_state(AppData { pool, s3, bucket })
+        .route("/change_username", post(routes::auth::change_username))
+        .route("/change_password", post(routes::auth::change_password))
+        .route(
+            "/trash_retention",
+            get(routes::auth::get_trash_retention).post(routes::auth::set_trash_retention),
+        )
+        .with_state(state)
         .layer(cors);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();

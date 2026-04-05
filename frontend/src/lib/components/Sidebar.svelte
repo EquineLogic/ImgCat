@@ -6,6 +6,8 @@
 	import { fetchFolders, currentFolderId } from '$lib/stores/folders';
 	import { fetchFiles } from '$lib/stores/files';
 
+	let { mode = 'home' }: { mode?: 'home' | 'settings' } = $props();
+
 	const MIN_W = 72;
 	const MAX_W = 240;
 	const COLLAPSE_THRESHOLD = 110;
@@ -25,31 +27,55 @@
 
 	const collapsed = $derived(sidebarWidth < COLLAPSE_THRESHOLD);
 
-	const navItems = [
-		{
-			label: 'New Folder',
-			icon: 'folder-plus',
-			action: () => (showNewFolder = true)
-		},
-		{
-			label: 'Upload Image',
-			icon: 'image-plus',
-			action: () => (showUpload = true)
-		},
-		{
-			label: 'My Library',
-			href: '/home',
-			icon: 'library'
-		}
-	];
+	const navItems = $derived(
+		mode === 'home'
+			? [
+					{
+						label: 'New Folder',
+						icon: 'folder-plus',
+						action: () => (showNewFolder = true)
+					},
+					{
+						label: 'Upload Image',
+						icon: 'image-plus',
+						action: () => (showUpload = true)
+					},
+					{
+						label: 'My Library',
+						href: '/home',
+						icon: 'library'
+					}
+				]
+			: [
+					{
+						label: 'Back to Library',
+						href: '/home',
+						icon: 'arrow-left'
+					},
+					{
+						label: 'Profile',
+						href: '/settings',
+						icon: 'user'
+					},
+					{
+						label: 'Trash Cleanup',
+						href: '/settings/cleanup',
+						icon: 'broom'
+					}
+				]
+	);
 
-	const bottomNavItems = [
-		{
-			label: 'Trash',
-			href: '/home/trash',
-			icon: 'trash'
-		}
-	];
+	const bottomNavItems = $derived(
+		mode === 'home'
+			? [
+					{
+						label: 'Trash',
+						href: '/home/trash',
+						icon: 'trash'
+					}
+				]
+			: []
+	);
 
 	async function createFolder() {
 		if (!folderName.trim()) return;
@@ -193,6 +219,50 @@
 			<path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
 			<path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
 		</svg>
+	{:else if icon === 'user'}
+		<svg
+			xmlns="http://www.w3.org/2000/svg"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="1.8"
+			stroke-linecap="round"
+			stroke-linejoin="round"
+			class="w-5 h-5 shrink-0"
+		>
+			<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+			<circle cx="12" cy="7" r="4" />
+		</svg>
+	{:else if icon === 'broom'}
+		<svg
+			xmlns="http://www.w3.org/2000/svg"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="1.8"
+			stroke-linecap="round"
+			stroke-linejoin="round"
+			class="w-5 h-5 shrink-0"
+		>
+			<path d="M19.4 14.6 9.4 4.6a2 2 0 0 0-2.8 2.8l10 10" />
+			<path d="M8 13 3 18l3 3 5-5" />
+			<path d="M14 22h8" />
+			<path d="M18 18l-4 4" />
+		</svg>
+	{:else if icon === 'arrow-left'}
+		<svg
+			xmlns="http://www.w3.org/2000/svg"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="1.8"
+			stroke-linecap="round"
+			stroke-linejoin="round"
+			class="w-5 h-5 shrink-0"
+		>
+			<path d="M19 12H5" />
+			<path d="M12 19l-7-7 7-7" />
+		</svg>
 	{:else if icon === 'library'}
 		<svg
 			xmlns="http://www.w3.org/2000/svg"
@@ -300,26 +370,24 @@
 
 	<!-- User section -->
 	<div class="border-t border-white/10 px-3 py-4 shrink-0">
-		{#if !collapsed}
-			<div class="flex items-center gap-3 px-2 mb-3 overflow-hidden">
-				<div
-					class="w-8 h-8 rounded-full bg-linear-to-br from-tw-purple to-tw-pink
-					       flex items-center justify-center text-white text-xs font-bold shrink-0"
-				>
-					{($user?.username ?? '?')[0].toUpperCase()}
-				</div>
-				<span class="text-sm text-white/70 truncate">{$user?.username}</span>
+		<a
+			href="/settings"
+			class="flex items-center gap-3 px-2 py-2 mb-2 rounded-xl no-underline
+			       overflow-hidden transition-colors duration-200 cursor-pointer
+			       text-white/70 hover:text-white hover:bg-white/5
+			       {collapsed ? 'justify-center' : ''}"
+			title="Settings"
+		>
+			<div
+				class="w-8 h-8 rounded-full bg-linear-to-br from-tw-purple to-tw-pink
+				       flex items-center justify-center text-white text-xs font-bold shrink-0"
+			>
+				{($user?.username ?? '?')[0].toUpperCase()}
 			</div>
-		{:else}
-			<div class="flex justify-center mb-3">
-				<div
-					class="w-8 h-8 rounded-full bg-linear-to-br from-tw-purple to-tw-pink
-					       flex items-center justify-center text-white text-xs font-bold"
-				>
-					{($user?.username ?? '?')[0].toUpperCase()}
-				</div>
-			</div>
-		{/if}
+			{#if !collapsed}
+				<span class="text-sm truncate">{$user?.username}</span>
+			{/if}
+		</a>
 
 		<button
 			onclick={handleSignOut}
@@ -358,6 +426,7 @@
 	></div>
 </aside>
 
+{#if mode === 'home'}
 <Modal bind:open={showNewFolder} title="New Folder">
 	<form
 		onsubmit={(e) => {
@@ -457,3 +526,4 @@
 		</button>
 	</div>
 </Modal>
+{/if}

@@ -1,5 +1,8 @@
 use crate::AppData;
-use crate::models::auth::{LoggedInUser, RegisterRequest, Session, SignInRequest};
+use crate::models::auth::{
+    ChangePassword, ChangeUsername, LoggedInUser, RegisterRequest, Session, SetTrashRetention,
+    SignInRequest, TrashRetention,
+};
 use argon2::{
     Argon2, PasswordHasher, PasswordVerifier,
     password_hash::{PasswordHash, SaltString, rand_core::OsRng},
@@ -82,7 +85,7 @@ pub async fn register(
     Ok(response)
 }
 
-fn salt_and_hash_password(password: &str) -> String {
+pub fn salt_and_hash_password(password: &str) -> String {
     let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
     argon2
@@ -217,4 +220,145 @@ pub async fn sign_out(
 
 pub async fn check_auth(user: LoggedInUser) -> Result<impl IntoResponse, (StatusCode, String)> {
     Ok(Json(user))
+}
+
+pub async fn change_username(
+    State(app): State<AppData>,
+    user: LoggedInUser,
+    Json(payload): Json<ChangeUsername>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    if let Err(e) = payload.validate() {
+        return Err((StatusCode::BAD_REQUEST, e));
+    }
+
+    sqlx::query(
+        "UPDATE users SET username = $1
+              WHERE username = $2",
+    )
+    .bind(payload.username)
+    .bind(user.username)
+    .execute(&app.pool)
+    .await
+    .map_err(|e| match &e {
+        sqlx::Error::Database(db) if db.is_unique_violation() => {
+            (StatusCode::CONFLICT, "Username already exists".to_string())
+        }
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Database error: {e}"),
+        ),
+    })?;
+
+    Ok(StatusCode::OK)
+}
+
+pub async fn change_password(
+    State(app): State<AppData>,
+    user: LoggedInUser,
+    Json(payload): Json<ChangePassword>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    if let Err(e) = payload.validate() {
+        return Err((StatusCode::BAD_REQUEST, e));
+    }
+
+    // get password hash for the given username
+    let row = sqlx::query("SELECT password FROM users WHERE username = $1")
+        .bind(&user.username)
+        .fetch_one(&app.pool)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::UNAUTHORIZED,
+                "Invalid username or password".to_string(),
+            )
+        })?;
+
+    let hashed_password: String = row.get("password");
+
+    // verify password
+    let argon2 = Argon2::default();
+    let parsed_hash = PasswordHash::new(&hashed_password).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to parse password hash".to_string(),
+        )
+    })?;
+
+    argon2
+        .verify_password(payload.curr_password.as_bytes(), &parsed_hash)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "Incorrect password".to_string()))?;
+
+    // now set new password
+    let hashed_password = salt_and_hash_password(&payload.new_password);
+
+    sqlx::query(
+        "UPDATE users SET password = $1
+              WHERE username = $2",
+    )
+    .bind(&hashed_password)
+    .bind(&user.username)
+    .execute(&app.pool)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Database error: {e}"),
+        )
+    })?;
+
+    Ok(StatusCode::OK)
+}
+
+pub async fn get_trash_retention(
+    State(app): State<AppData>,
+    user: LoggedInUser,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let row = sqlx::query("SELECT trash_retention_days FROM users WHERE username = $1")
+        .bind(&user.username)
+        .fetch_one(&app.pool)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Database error: {e}"),
+            )
+        })?;
+
+    let retention_days: i32 = row.get("trash_retention_days");
+
+    Ok(Json(TrashRetention {
+        days: retention_days,
+    }))
+}
+
+pub async fn set_trash_retention(
+    State(app): State<AppData>,
+    user: LoggedInUser,
+    Json(payload): Json<SetTrashRetention>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    const VALID_DAYS: [i32; 6] = [0, 7, 14, 30, 60, 90];
+
+    if !VALID_DAYS.contains(&payload.days) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Invalid retention period".to_string(),
+        ));
+    }
+
+    sqlx::query(
+        "UPDATE users SET trash_retention_days = $1
+              WHERE username = $2",
+    )
+    .bind(payload.days)
+    .bind(&user.username)
+    .execute(&app.pool)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Database error: {e}"),
+        )
+    })?;
+
+    Ok(StatusCode::OK)
 }
