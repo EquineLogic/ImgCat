@@ -1,13 +1,67 @@
 <script lang="ts">
+	import ContextMenu from './ContextMenu.svelte';
+	import RenameModal from './RenameModal.svelte';
 	import ImageViewer from './ImageViewer.svelte';
+	import { fetchFiles } from '$lib/stores/files';
 
 	let { name, id } = $props<{ name: string; id: string }>();
 	let viewerOpen = $state(false);
+
+	let menuOpen = $state(false);
+	let menuX = $state(0);
+	let menuY = $state(0);
+	let showRename = $state(false);
+
+	function onContextMenu(e: MouseEvent) {
+		e.preventDefault();
+		menuX = e.clientX;
+		menuY = e.clientY;
+		menuOpen = true;
+	}
+
+	async function submitRename(newName: string): Promise<string | null> {
+		const res = await fetch(`http://localhost:3000/rename_file`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			credentials: 'include',
+			body: JSON.stringify({ id, name: newName })
+		});
+		if (!res.ok) return await res.text();
+		await fetchFiles();
+		return null;
+	}
+
+	async function deleteFile() {
+		const res = await fetch(`http://localhost:3000/delete_file`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			credentials: 'include',
+			body: JSON.stringify({ id })
+		});
+		if (res.ok) {
+			await fetchFiles();
+		}
+	}
+
+	const menuItems = [
+		{
+			label: 'Rename',
+			icon: 'rename',
+			action: () => (showRename = true)
+		},
+		{
+			label: 'Delete',
+			icon: 'delete',
+			danger: true,
+			action: deleteFile
+		}
+	];
 </script>
 
 <button
 	type="button"
 	onclick={() => (viewerOpen = true)}
+	oncontextmenu={onContextMenu}
 	class="group flex flex-col items-center gap-3 p-3 rounded-2xl
 	       bg-white/5 border border-white/10
 	       hover:bg-tw-purple/10 hover:border-tw-purple/30
@@ -18,9 +72,15 @@
 		alt={name}
 		class="w-full aspect-square object-cover rounded-xl pointer-events-none"
 	/>
-	<span class="text-sm text-white/70 group-hover:text-white truncate max-w-full transition-colors duration-200">
+	<span
+		class="text-sm text-white/70 group-hover:text-white truncate max-w-full transition-colors duration-200"
+	>
 		{name}
 	</span>
 </button>
+
+<ContextMenu bind:open={menuOpen} x={menuX} y={menuY} items={menuItems} />
+
+<RenameModal bind:open={showRename} title="Rename File" currentName={name} onSubmit={submitRename} />
 
 <ImageViewer bind:open={viewerOpen} {id} {name} />

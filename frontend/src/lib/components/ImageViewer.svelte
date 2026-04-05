@@ -1,5 +1,6 @@
 <script lang="ts">
-	import Modal from './Modal.svelte';
+	import RenameModal from './RenameModal.svelte';
+	import ConfirmModal from './ConfirmModal.svelte';
 	import { fetchFiles } from '$lib/stores/files';
 
 	let { open = $bindable(false), id, name } = $props<{
@@ -23,8 +24,6 @@
 	// UI state
 	let menuOpen = $state(false);
 	let showRename = $state(false);
-	let newName = $state('');
-	let renameError = $state('');
 	let deleting = $state(false);
 
 	function close() {
@@ -107,33 +106,22 @@
 
 	function openRename() {
 		menuOpen = false;
-		newName = name;
-		renameError = '';
 		showRename = true;
 	}
 
-	async function submitRename() {
-		const trimmed = newName.trim();
-		if (!trimmed || trimmed === name) {
-			showRename = false;
-			return;
-		}
+	async function submitRename(newName: string): Promise<string | null> {
 		const res = await fetch('http://localhost:3000/rename_file', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			credentials: 'include',
-			body: JSON.stringify({ id, name: trimmed })
+			body: JSON.stringify({ id, name: newName })
 		});
-		if (!res.ok) {
-			renameError = await res.text();
-			return;
-		}
-		renameError = '';
-		showRename = false;
+		if (!res.ok) return await res.text();
 		await fetchFiles();
+		return null;
 	}
 
-	async function confirmDelete() {
+	function confirmDelete() {
 		deleting = true;
 		menuOpen = false;
 	}
@@ -145,7 +133,6 @@
 			credentials: 'include',
 			body: JSON.stringify({ id })
 		});
-		deleting = false;
 		if (res.ok) {
 			await fetchFiles();
 			close();
@@ -269,52 +256,16 @@
 	</div>
 {/if}
 
-<!-- Rename modal -->
-<Modal bind:open={showRename} title="Rename File">
-	<form onsubmit={(e) => { e.preventDefault(); submitRename(); }} class="flex flex-col gap-4">
-		<label class="flex flex-col gap-1">
-			<span class="text-tw-yellow text-sm">New Name</span>
-			<input
-				type="text"
-				bind:value={newName}
-				class="rounded-lg px-4 py-2.5 bg-tw-darkblue/80 border border-tw-purple/40 text-white
-				       placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-tw-neon"
-			/>
-		</label>
-		{#if renameError}
-			<p class="text-sm text-red-400">{renameError}</p>
-		{/if}
-		<button
-			type="submit"
-			disabled={!newName.trim() || newName.trim() === name}
-			class="rounded-lg py-2.5 font-semibold text-white transition-colors duration-200
-			       focus:outline-none focus:ring-2 focus:ring-tw-neon
-			       {newName.trim() && newName.trim() !== name ? 'bg-tw-purple hover:bg-tw-pink cursor-pointer' : 'bg-white/10 text-white/30 cursor-not-allowed'}"
-		>
-			Rename
-		</button>
-	</form>
-</Modal>
+<RenameModal bind:open={showRename} title="Rename File" currentName={name} onSubmit={submitRename} />
 
-<!-- Delete confirmation modal -->
-<Modal bind:open={deleting} title="Delete File">
-	<div class="flex flex-col gap-4">
-		<p class="text-sm text-white/70">
-			Move <span class="text-white font-medium">{name}</span> to trash? You can restore it later.
-		</p>
-		<div class="flex gap-2 justify-end">
-			<button
-				onclick={() => (deleting = false)}
-				class="px-4 py-2 rounded-lg text-sm text-white/60 hover:text-white hover:bg-white/10 cursor-pointer transition-colors duration-150"
-			>
-				Cancel
-			</button>
-			<button
-				onclick={submitDelete}
-				class="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-red-500/80 hover:bg-red-500 cursor-pointer transition-colors duration-150"
-			>
-				Delete
-			</button>
-		</div>
-	</div>
-</Modal>
+<ConfirmModal
+	bind:open={deleting}
+	title="Delete File"
+	confirmLabel="Delete"
+	danger
+	onConfirm={submitDelete}
+>
+	<p class="text-sm text-white/70">
+		Move <span class="text-white font-medium">{name}</span> to trash? You can restore it later.
+	</p>
+</ConfirmModal>
