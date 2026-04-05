@@ -1,11 +1,21 @@
 use axum::response::IntoResponse;
 use axum::http::StatusCode;
 
-use crate::ops::OpError;
+use crate::ops::{OpError, OpSuccess};
 
 pub mod auth;
 pub mod filesystem;
 
+// maps opsuccess to api responses
+impl IntoResponse for OpSuccess {
+    fn into_response(self) -> axum::response::Response {
+        match self {
+            Self::FolderCreated => (StatusCode::CREATED, "The folder has been created").into_response()
+        }
+    }
+}
+
+// maps operror to api responses
 impl IntoResponse for OpError {
     fn into_response(self) -> axum::response::Response {
         match self {

@@ -8,6 +8,7 @@ use crate::models::auth::LoggedInUser;
 use crate::models::filesystem::{
     DeleteFile, DeleteFolder, FileEntry, FileUrl, Folder, ListParams, MoveRequest, NewFile, NewFolder, RenameRequest, ReorderRequest, TrashEntry
 };
+use crate::ops::{OpArgs, OpError, OpSuccess};
 use aws_sdk_s3::types::{Delete, ObjectIdentifier};
 use axum::{
     Json,
@@ -22,31 +23,8 @@ pub async fn create_folder(
     State(app): State<AppData>,
     user: LoggedInUser,
     Json(payload): Json<NewFolder>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
-    // COALESCE handles empty folders where MAX(sort_order) returns NULL -> defaults to 0, then +1
-    let row = sqlx::query(
-        "INSERT INTO filesystem (name, type, owner_username, parent_id, sort_order)
-         VALUES ($1, 'folder', $2, $3,
-            COALESCE((SELECT MAX(sort_order) FROM filesystem WHERE parent_id IS NOT DISTINCT FROM $3 AND owner_username = $2 AND deleted_at IS NULL), 0) + 1
-         ) ON CONFLICT (parent_id, name) WHERE deleted_at IS NULL DO NOTHING"
-    )
-        .bind(&payload.name)
-        .bind(&user.username)
-        .bind(payload.parent_id)
-        .execute(&app.pool)
-        .await.map_err(|e|
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Can't make folder error: {e}"))
-        )?;
-
-    // check if folder was created successfully
-    if row.rows_affected() == 0 {
-        return Err((
-            StatusCode::CONFLICT,
-            "A folder with that name already exists".to_string(),
-        ));
-    }
-
-    Ok(StatusCode::CREATED)
+) -> Result<OpSuccess, OpError> {
+    app.exec_op(OpArgs::CreateFolder { name: payload.name, parent_id: payload.parent_id }, Some(user.username)).await
 }
 
 pub async fn list_folders(
