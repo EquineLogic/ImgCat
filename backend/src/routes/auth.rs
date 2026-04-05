@@ -85,7 +85,7 @@ pub async fn register(
     Ok(response)
 }
 
-pub fn salt_and_hash_password(password: &str) -> String {
+fn salt_and_hash_password(password: &str) -> String {
     let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
     argon2
