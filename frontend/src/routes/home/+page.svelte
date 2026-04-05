@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { flip } from 'svelte/animate';
 	import FolderCard from '$lib/components/FolderCard.svelte';
 	import ImageCard from '$lib/components/ImageCard.svelte';
+	import FileGrid from '$lib/components/FileGrid.svelte';
 	import { folders, fetchFolders, breadcrumbs, navigateToBreadcrumb } from '$lib/stores/folders';
 	import { files, fetchFiles } from '$lib/stores/files';
 
@@ -15,6 +15,7 @@
 	let dragId: string | null = $state(null);
 	let dragEl: HTMLElement | null = $state(null);
 	let dragClone: HTMLElement | null = $state(null);
+	let dropTargetFolderId: string | null = $state(null);
 	let startX = 0;
 	let startY = 0;
 	let offsetX = 0;
@@ -73,6 +74,29 @@
 			dragClone.style.top = (e.clientY - offsetY) + 'px';
 		}
 
+		// Check whether we're hovering a folder (move target).
+		// Works for both file and folder drags; a folder can't be dropped on itself.
+		const folderContainer = document.querySelector('[data-droppable="folders"]');
+		let hoveredFolder: string | null = null;
+		if (folderContainer) {
+			const folderChildren = Array.from(folderContainer.children) as HTMLElement[];
+			for (let i = 0; i < folderChildren.length; i++) {
+				const candidateId = $folders[i]?.id ?? null;
+				if (candidateId === dragId) continue;
+				const rect = folderChildren[i].getBoundingClientRect();
+				if (
+					e.clientX >= rect.left && e.clientX <= rect.right &&
+					e.clientY >= rect.top && e.clientY <= rect.bottom
+				) {
+					hoveredFolder = candidateId;
+					break;
+				}
+			}
+		}
+		dropTargetFolderId = hoveredFolder;
+		// Skip reorder logic while hovering a folder so highlight stays visible
+		if (dropTargetFolderId) return;
+
 		// Find which item the cursor is over and reorder
 		const list = dragType === 'folder' ? $folders : $files;
 		const container = dragType === 'folder'
@@ -117,8 +141,10 @@
 		if (!dragId) return;
 
 		if (dragging) {
-			// Persist the final order
-			if (dragType === 'folder') {
+			if (dropTargetFolderId) {
+				// Move the dragged item into the hovered folder
+				moveEntry(dragId, dropTargetFolderId);
+			} else if (dragType === 'folder') {
 				persistOrder($folders.map((f) => f.id));
 			} else if (dragType === 'file') {
 				persistOrder($files.map((f) => f.id));
@@ -134,6 +160,7 @@
 		dragId = null;
 		dragType = null;
 		dragEl = null;
+		dropTargetFolderId = null;
 	}
 
 	async function persistOrder(ids: string[]) {
@@ -143,6 +170,19 @@
 			credentials: 'include',
 			body: JSON.stringify({ ids })
 		});
+	}
+
+	async function moveEntry(id: string, parentId: string) {
+		const res = await fetch('http://localhost:3000/move', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			credentials: 'include',
+			body: JSON.stringify({ id, parent_id: parentId })
+		});
+		if (res.ok) {
+			// Moved item is no longer in the current folder; refresh both lists
+			await Promise.all([fetchFolders(), fetchFiles()]);
+		}
 	}
 </script>
 
@@ -185,63 +225,41 @@
 		</button>
 	</div>
 
-	{#if loading}
-		<div class="flex justify-center mt-20">
-			<div class="w-6 h-6 border-2 border-tw-neon/30 border-t-tw-neon rounded-full animate-spin"></div>
-		</div>
-	{:else if $folders.length === 0 && $files.length === 0}
-		<div class="w-full max-w-lg mx-auto mt-20 flex flex-col items-center gap-4 text-center">
-			<div class="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">
-				<svg
-					xmlns="http://www.w3.org/2000/svg"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="1.5"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					class="w-8 h-8 text-white/20"
-				>
-					<path d="M2 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2z" />
-				</svg>
-			</div>
-			<p class="text-white/30 text-sm">This folder is empty.</p>
-		</div>
-	{:else}
-		{#if $folders.length > 0}
-			<div class="flex flex-wrap gap-2 mb-6" data-droppable="folders">
-				{#each $folders as folder (folder.id)}
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div
-						animate:flip={{ duration: 200 }}
-						onpointerdown={(e) => onPointerDown(e, folder.id, 'folder')}
-						class="{editMode ? 'cursor-grab active:cursor-grabbing' : ''}
-						       {dragging && dragId === folder.id ? 'opacity-30' : ''}"
-					>
-						<div class={editMode ? 'pointer-events-none' : ''}>
-							<FolderCard name={folder.name} id={folder.id} />
-						</div>
-					</div>
-				{/each}
-			</div>
-		{/if}
-
-		{#if $files.length > 0}
-			<div class="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-4" data-droppable="files">
-				{#each $files as file (file.id)}
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div
-						animate:flip={{ duration: 200 }}
-						onpointerdown={(e) => onPointerDown(e, file.id, 'file')}
-						class="{editMode ? 'cursor-grab active:cursor-grabbing' : ''}
-						       {dragging && dragId === file.id ? 'opacity-30' : ''}"
-					>
-						<div class={editMode ? 'pointer-events-none' : ''}>
-							<ImageCard name={file.name} id={file.id} />
-						</div>
-					</div>
-				{/each}
-			</div>
-		{/if}
-	{/if}
+	<FileGrid
+		folders={$folders}
+		files={$files}
+		{loading}
+		foldersDroppable="folders"
+		filesDroppable="files"
+		folderItem={folderItem}
+		fileItem={fileItem}
+	/>
 </div>
+
+{#snippet folderItem(folder: { id: string; name: string })}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div
+		onpointerdown={(e) => onPointerDown(e, folder.id, 'folder')}
+		class="transition-transform duration-150 rounded-xl
+		       {editMode ? 'cursor-grab active:cursor-grabbing' : ''}
+		       {dragging && dragId === folder.id ? 'opacity-30' : ''}
+		       {dropTargetFolderId === folder.id ? 'ring-2 ring-tw-neon scale-105' : ''}"
+	>
+		<div class={editMode ? 'pointer-events-none' : ''}>
+			<FolderCard name={folder.name} id={folder.id} />
+		</div>
+	</div>
+{/snippet}
+
+{#snippet fileItem(file: { id: string; name: string })}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div
+		onpointerdown={(e) => onPointerDown(e, file.id, 'file')}
+		class="{editMode ? 'cursor-grab active:cursor-grabbing' : ''}
+		       {dragging && dragId === file.id ? 'opacity-30' : ''}"
+	>
+		<div class={editMode ? 'pointer-events-none' : ''}>
+			<ImageCard name={file.name} id={file.id} />
+		</div>
+	</div>
+{/snippet}

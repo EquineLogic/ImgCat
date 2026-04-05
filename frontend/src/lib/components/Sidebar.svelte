@@ -43,6 +43,14 @@
 		}
 	];
 
+	const bottomNavItems = [
+		{
+			label: 'Trash',
+			href: '/home/trash',
+			icon: 'trash'
+		}
+	];
+
 	async function createFolder() {
 		if (!folderName.trim()) return;
 		const res = await fetch('http://localhost:3000/create_folder', {
@@ -170,6 +178,21 @@
 			<line x1="16" y1="5" x2="16" y2="11" />
 			<line x1="13" y1="8" x2="19" y2="8" />
 		</svg>
+	{:else if icon === 'trash'}
+		<svg
+			xmlns="http://www.w3.org/2000/svg"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="1.8"
+			stroke-linecap="round"
+			stroke-linejoin="round"
+			class="w-5 h-5 shrink-0"
+		>
+			<path d="M3 6h18" />
+			<path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+			<path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+		</svg>
 	{:else if icon === 'library'}
 		<svg
 			xmlns="http://www.w3.org/2000/svg"
@@ -249,6 +272,31 @@
 			{/if}
 		{/each}
 	</nav>
+
+	<!-- Bottom nav items (trash, etc.) -->
+	<div class="px-3 pb-2 shrink-0">
+		{#each bottomNavItems as item}
+			<a
+				href={item.href}
+				class="group flex items-center gap-3 px-3 py-2.5 rounded-xl
+				       no-underline transition-all duration-200 whitespace-nowrap overflow-hidden
+				       {isActive(item.href)
+					? 'bg-tw-purple/20 text-tw-neon shadow-[inset_0_0_12px_rgba(0,245,255,0.08)]'
+					: 'text-white/50 hover:text-white hover:bg-white/5'}"
+			>
+				{@render navIcon(item.icon)}
+				{#if !collapsed}
+					<span class="text-sm font-medium truncate">{item.label}</span>
+				{/if}
+				{#if isActive(item.href) && !collapsed}
+					<span
+						class="ml-auto w-1.5 h-1.5 rounded-full bg-tw-neon
+						       shadow-[0_0_6px_rgba(0,245,255,0.6)]"
+					></span>
+				{/if}
+			</a>
+		{/each}
+	</div>
 
 	<!-- User section -->
 	<div class="border-t border-white/10 px-3 py-4 shrink-0">

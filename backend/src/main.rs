@@ -74,7 +74,16 @@ async fn main() {
         .route("/upload_file", post(routes::filesystem::upload_file))
         .route("/list_files", get(routes::filesystem::list_files))
         .route("/files/{id}", get(routes::filesystem::get_file))
+        .route("/rename_file", post(routes::filesystem::rename_file))
+        .route("/delete_file", post(routes::filesystem::delete_file))
         .route("/reorder", post(routes::filesystem::reorder))
+        .route("/move", post(routes::filesystem::move_entry))
+        .route("/list_trash", get(routes::filesystem::list_trash))
+        .route("/restore", post(routes::filesystem::restore_entry))
+        .route(
+            "/delete_trash_entry",
+            post(routes::filesystem::delete_trash_entry),
+        )
         .with_state(AppData { pool, s3, bucket })
         .layer(cors);
 

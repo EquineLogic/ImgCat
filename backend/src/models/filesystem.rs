@@ -24,7 +24,12 @@ pub struct DeleteFolder {
 }
 
 #[derive(Deserialize)]
-pub struct RenameFolder {
+pub struct DeleteFile {
+    pub id: uuid::Uuid,
+}
+
+#[derive(Deserialize)]
+pub struct RenameRequest {
     pub id: uuid::Uuid,
     pub name: String,
 }
@@ -109,4 +114,19 @@ pub struct FileEntry {
 #[derive(Deserialize)]
 pub struct ReorderRequest {
     pub ids: Vec<uuid::Uuid>,
+}
+
+#[derive(Deserialize)]
+pub struct MoveRequest {
+    pub id: uuid::Uuid,
+    pub parent_id: Option<uuid::Uuid>,
+}
+
+#[derive(Serialize)]
+pub struct TrashEntry {
+    pub id: uuid::Uuid,
+    pub name: String,
+    pub kind: String, // "folder" | "file_link"
+    pub mime_type: Option<String>,
+    pub deleted_at: chrono::DateTime<chrono::Utc>,
 }

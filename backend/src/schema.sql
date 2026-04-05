@@ -57,9 +57,6 @@ CREATE TABLE filesystem (
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     deleted_at TIMESTAMPTZ,
 
-    -- Prevent duplicate names in the same exact folder
-    CONSTRAINT unique_name_per_folder UNIQUE (parent_id, name),
-    
     -- Ensure folders don't point to files, and file_links ALWAYS point to files
     CONSTRAINT check_hardlink_logic CHECK (
         (type = 'folder' AND file_id IS NULL) OR 
@@ -112,5 +109,12 @@ CREATE INDEX idx_filesystem_parent_id ON filesystem (parent_id);
 -- Speed up reverse lookups (e.g., "Find all folders containing this image")
 CREATE INDEX idx_filesystem_file_id ON filesystem (file_id);
 
--- Speed up ordered directory listings
-CREATE INDEX idx_filesystem_sort ON filesystem (parent_id, sort_order);
+-- Speed up ordered directory listings (active rows only — soft-deleted rows never appear in listings)
+CREATE INDEX idx_filesystem_sort ON filesystem (parent_id, sort_order) WHERE deleted_at IS NULL;
+
+-- Prevent duplicate names within a folder, but only among active rows.
+-- Soft-deleted rows can keep their original names without blocking a new
+-- entry being created with the same name (otherwise you could never re-upload
+-- a file you just deleted).
+CREATE UNIQUE INDEX unique_name_per_folder
+    ON filesystem (parent_id, name) WHERE deleted_at IS NULL;
