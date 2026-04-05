@@ -118,4 +118,6 @@ CREATE INDEX idx_filesystem_sort ON filesystem (parent_id, sort_order) WHERE del
 -- entry being created with the same name (otherwise you could never re-upload
 -- a file you just deleted).
 CREATE UNIQUE INDEX unique_name_per_folder
-    ON filesystem (parent_id, name) WHERE deleted_at IS NULL;
+    ON filesystem (parent_id, name)
+    NULLS NOT DISTINCT
+    WHERE deleted_at IS NULL;
