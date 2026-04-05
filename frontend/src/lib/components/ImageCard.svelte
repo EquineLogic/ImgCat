@@ -4,7 +4,7 @@
 	import ImageViewer from './ImageViewer.svelte';
 	import { fetchFiles } from '$lib/stores/files';
 
-	let { name, id } = $props<{ name: string; id: string }>();
+	let { name, id, url } = $props<{ name: string; id: string; url: string }>();
 	let viewerOpen = $state(false);
 
 	let menuOpen = $state(false);
@@ -68,7 +68,7 @@
 	       cursor-pointer transition-all duration-200 text-left w-full"
 >
 	<img
-		src="http://localhost:3000/files/{id}"
+		src={url}
 		alt={name}
 		class="w-full aspect-square object-cover rounded-xl pointer-events-none"
 	/>
@@ -83,4 +83,4 @@
 
 <RenameModal bind:open={showRename} title="Rename File" currentName={name} onSubmit={submitRename} />
 
-<ImageViewer bind:open={viewerOpen} {id} {name} />
+<ImageViewer bind:open={viewerOpen} {id} {name} {url} />

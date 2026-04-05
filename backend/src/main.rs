@@ -39,7 +39,6 @@ async fn main() {
         .route("/rename_folder", post(routes::filesystem::rename_folder))
         .route("/upload_file", post(routes::filesystem::upload_file))
         .route("/list_files", get(routes::filesystem::list_files))
-        .route("/files/{id}", get(routes::filesystem::get_file))
         .route("/rename_file", post(routes::filesystem::rename_file))
         .route("/delete_file", post(routes::filesystem::delete_file))
         .route("/reorder", post(routes::filesystem::reorder))

@@ -251,7 +251,7 @@
 	</div>
 {/snippet}
 
-{#snippet fileItem(file: { id: string; name: string })}
+{#snippet fileItem(file: { id: string; name: string; url: string })}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		onpointerdown={(e) => onPointerDown(e, file.id, 'file')}
@@ -259,7 +259,7 @@
 		       {dragging && dragId === file.id ? 'opacity-30' : ''}"
 	>
 		<div class={editMode ? 'pointer-events-none' : ''}>
-			<ImageCard name={file.name} id={file.id} />
+			<ImageCard name={file.name} id={file.id} url={file.url} />
 		</div>
 	</div>
 {/snippet}

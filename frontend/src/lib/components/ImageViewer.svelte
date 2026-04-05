@@ -3,10 +3,11 @@
 	import ConfirmModal from './ConfirmModal.svelte';
 	import { fetchFiles } from '$lib/stores/files';
 
-	let { open = $bindable(false), id, name } = $props<{
+	let { open = $bindable(false), id, name, url: fileurl } = $props<{
 		open: boolean;
 		id: string;
 		name: string;
+		url: string;
 	}>();
 
 	// Zoom / pan state
@@ -91,7 +92,7 @@
 
 	async function download() {
 		menuOpen = false;
-		const res = await fetch(`http://localhost:3000/files/${id}`, { credentials: 'include' });
+		const res = await fetch(fileurl, { credentials: 'include' });
 		if (!res.ok) return;
 		const blob = await res.blob();
 		const url = URL.createObjectURL(blob);
@@ -246,7 +247,7 @@
 			onclick={(e) => e.stopPropagation()}
 		>
 			<img
-				src="http://localhost:3000/files/{id}"
+				src={fileurl}
 				alt={name}
 				draggable="false"
 				class="max-w-[90vw] max-h-[90vh] object-contain {panning ? '' : 'transition-transform duration-75'}"

@@ -10,6 +10,7 @@
 		name: string;
 		kind: 'folder' | 'file_link';
 		mime_type: string | null;
+		url?: string;
 		deleted_at: string;
 	};
 
@@ -128,13 +129,15 @@
 {/snippet}
 
 {#snippet fileItem(file: TrashEntry)}
-	<div class="group relative opacity-60 hover:opacity-100 transition-opacity duration-150">
-		<div class="pointer-events-none">
-			<ImageCard name={file.name} id={file.id} />
+	{#if file.url}
+		<div class="group relative opacity-60 hover:opacity-100 transition-opacity duration-150">
+			<div class="pointer-events-none">
+				<ImageCard name={file.name} id={file.id} url={file.url} />
+			</div>
+			{@render actionBtn(file, 'restore', true)}
+			{@render actionBtn(file, 'purge', true)}
 		</div>
-		{@render actionBtn(file, 'restore', true)}
-		{@render actionBtn(file, 'purge', true)}
-	</div>
+	{/if}
 {/snippet}
 
 <Modal bind:open={purgeModalOpen} title="Delete forever?">

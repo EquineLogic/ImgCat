@@ -6,8 +6,7 @@
 use crate::AppData;
 use crate::models::auth::LoggedInUser;
 use crate::models::filesystem::{
-    DeleteFile, DeleteFolder, FileEntry, Folder, ListParams, MoveRequest, NewFile, NewFolder,
-    RenameRequest, ReorderRequest, TrashEntry,
+    DeleteFile, DeleteFolder, FileEntry, FileUrl, Folder, ListParams, MoveRequest, NewFile, NewFolder, RenameRequest, ReorderRequest, TrashEntry
 };
 use aws_sdk_s3::types::{Delete, ObjectIdentifier};
 use axum::{
@@ -233,8 +232,17 @@ pub async fn list_files(
     user: LoggedInUser,
     Query(params): Query<ListParams>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let rows = sqlx::query(
-        "SELECT fs.id, fs.name, f.size_bytes, f.mime_type
+    #[derive(sqlx::FromRow)]
+    struct Row {
+        id: uuid::Uuid,
+        name: String,
+        size_bytes: i64,
+        mime_type: String,
+        s3_fileid: String
+    }
+
+    let rows: Vec<Row> = sqlx::query_as(
+        "SELECT fs.id, fs.name, f.size_bytes, f.mime_type, f.s3_fileid
               FROM filesystem fs
               JOIN files f ON fs.file_id = f.id
               WHERE fs.owner_username = $1 AND fs.type = 'file_link'
@@ -253,15 +261,24 @@ pub async fn list_files(
         )
     })?;
 
-    let files: Vec<FileEntry> = rows
-        .into_iter()
-        .map(|row| FileEntry {
-            id: row.get("id"),
-            name: row.get("name"),
-            size_bytes: row.get("size_bytes"),
-            mime_type: row.get("mime_type"),
+    let mut files: Vec<FileEntry> = Vec::with_capacity(rows.len());
+    for row in rows {
+        let furl = FileUrl::new(&app, row.s3_fileid).await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Database error: {e}"),
+            )
+        })?;
+
+        files.push(FileEntry {
+            id: row.id,
+            name: row.name,
+            mime_type: row.mime_type,
+            size_bytes: row.size_bytes,
+            url: furl
         })
-        .collect();
+    }
 
     Ok(Json(files))
 }
@@ -479,11 +496,21 @@ pub async fn list_trash(
     State(app): State<AppData>,
     user: LoggedInUser,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    #[derive(sqlx::FromRow)]
+    struct Row {
+        id: uuid::Uuid,
+        name: String,
+        kind: String, // "folder" | "file_link"
+        mime_type: Option<String>,
+        deleted_at: chrono::DateTime<chrono::Utc>,
+        s3_fileid: Option<String>,
+    }
+
     // Only return the "root" of each deletion: items whose nearest soft-deleted
     // ancestor is themselves. For cascaded folder deletes, this returns just the
     // top folder, not every descendant.
-    let rows = sqlx::query(
-        "SELECT fs.id, fs.name, fs.type::text AS kind, fs.deleted_at, f.mime_type
+    let rows: Vec<Row> = sqlx::query_as(
+        "SELECT fs.id, fs.name, fs.type::text AS kind, fs.deleted_at, f.mime_type, f.s3_fileid
            FROM filesystem fs
            LEFT JOIN files f ON fs.file_id = f.id
           WHERE fs.owner_username = $1
@@ -507,16 +534,25 @@ pub async fn list_trash(
         )
     })?;
 
-    let items: Vec<TrashEntry> = rows
-        .into_iter()
-        .map(|r| TrashEntry {
-            id: r.get("id"),
-            name: r.get("name"),
-            kind: r.get("kind"),
-            mime_type: r.get("mime_type"),
-            deleted_at: r.get("deleted_at"),
-        })
-        .collect();
+    let mut items: Vec<TrashEntry> = Vec::with_capacity(rows.len());
+    for r in rows {
+        let furl = match r.s3_fileid {
+            Some(s3_fileid) => {
+                let furl = FileUrl::new(&app, s3_fileid).await
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Database error: {e}"),
+                    )
+                })?;
+
+                Some(furl)
+            }
+            None => None
+        };
+
+        items.push(TrashEntry { id: r.id, name: r.name, kind: r.kind, mime_type: r.mime_type, deleted_at: r.deleted_at, url: furl });
+    }
 
     Ok(Json(items))
 }
