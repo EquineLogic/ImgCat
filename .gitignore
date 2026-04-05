@@ -1,4 +1,5 @@
 backend/target
+backend/target/*
 backend/config.yaml
 frontend/node_modules
 frontend/build
