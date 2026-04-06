@@ -1,40 +1,104 @@
 use aws_sdk_s3::presigning::PresigningConfig;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use uuid;
+use uuid::Uuid;
 
 use crate::AppData;
+
+#[derive(Serialize, Deserialize, sqlx::FromRow)]
+pub struct Folder {
+    pub id: Uuid,
+    pub name: String,
+}
+
+#[derive(Serialize)]
+#[serde(transparent)]
+pub struct FileUrl {
+    url: String,
+}
+
+impl FileUrl {
+    const URL_EXPIRY: Duration = Duration::from_secs(10 * 60);
+
+    pub async fn new(data: &AppData, fileid: String) -> Result<Self, crate::Error> {
+        let presigned_request = data
+            .s3
+            .get_object()
+            .bucket(&data.bucket)
+            .key(&fileid)
+            .presigned(PresigningConfig::expires_in(Self::URL_EXPIRY)?)
+            .await?;
+
+        Ok(Self {
+            url: presigned_request.uri().to_string(),
+        })
+    }
+}
+
+#[derive(Serialize)]
+pub struct FileEntry {
+    pub id: Uuid,
+    pub name: String,
+    pub mime_type: String,
+    pub size_bytes: i64,
+    pub url: FileUrl,
+}
+
+#[derive(Serialize)]
+pub struct TrashEntry {
+    pub id: Uuid,
+    pub name: String,
+    pub kind: String,
+    pub mime_type: Option<String>,
+    pub deleted_at: chrono::DateTime<chrono::Utc>,
+    pub url: Option<FileUrl>,
+}
+
+#[derive(sqlx::FromRow)]
+pub struct FileRow {
+    pub id: Uuid,
+    pub name: String,
+    pub size_bytes: i64,
+    pub mime_type: String,
+    pub s3_fileid: String,
+}
+
+#[derive(sqlx::FromRow)]
+pub struct TrashRow {
+    pub id: Uuid,
+    pub name: String,
+    pub kind: String,
+    pub mime_type: Option<String>,
+    pub deleted_at: chrono::DateTime<chrono::Utc>,
+    pub s3_fileid: Option<String>,
+}
+
+// ── Request types ─────────���─────────────────────────────────────────────
 
 #[derive(Deserialize)]
 pub struct NewFolder {
     pub name: String,
-    pub parent_id: Option<uuid::Uuid>,
-}
-
-#[derive(Serialize)]
-pub struct Folder {
-    pub id: uuid::Uuid,
-    pub name: String,
+    pub parent_id: Option<Uuid>,
 }
 
 #[derive(Deserialize)]
 pub struct ListParams {
-    pub parent_id: Option<uuid::Uuid>,
+    pub parent_id: Option<Uuid>,
 }
 
 #[derive(Deserialize)]
 pub struct DeleteFolder {
-    pub id: uuid::Uuid,
+    pub id: Uuid,
 }
 
 #[derive(Deserialize)]
 pub struct DeleteFile {
-    pub id: uuid::Uuid,
+    pub id: Uuid,
 }
 
 #[derive(Deserialize)]
 pub struct RenameRequest {
-    pub id: uuid::Uuid,
+    pub id: Uuid,
     pub name: String,
 }
 
@@ -42,7 +106,7 @@ pub struct NewFile {
     pub data: Vec<u8>,
     pub name: String,
     pub mime_type: String,
-    pub parent_id: Option<uuid::Uuid>,
+    pub parent_id: Option<Uuid>,
 }
 
 impl NewFile {
@@ -54,7 +118,7 @@ impl NewFile {
         let mut file_data: Option<Vec<u8>> = None;
         let mut name: Option<String> = None;
         let mut mime_type: Option<String> = None;
-        let mut parent_id: Option<uuid::Uuid> = None;
+        let mut parent_id: Option<Uuid> = None;
 
         while let Some(field) = multipart
             .next_field()
@@ -107,59 +171,13 @@ impl NewFile {
     }
 }
 
-#[derive(Serialize)]
-#[serde(transparent)]
-/// Wrapper that stores the file url
-pub struct FileUrl {
-    url: String,
-}
-
-impl FileUrl {
-    const URL_EXPIRY: Duration = Duration::from_secs(10 * 60); // 10 min expiry time
-
-    /// Creates a new FileUrl for viewing the file with on the frontend. This file can be directly fetched by frontend without
-    /// backend involvement (for faster performance)
-    pub async fn new(data: &AppData, fileid: String) -> Result<Self, crate::Error> {
-        let presigned_request = data
-            .s3
-            .get_object()
-            .bucket(&data.bucket)
-            .key(&fileid)
-            .presigned(PresigningConfig::expires_in(Self::URL_EXPIRY)?)
-            .await?;
-
-        Ok(Self {
-            url: presigned_request.uri().to_string(),
-        })
-    }
-}
-
-#[derive(Serialize)]
-pub struct FileEntry {
-    pub id: uuid::Uuid,
-    pub name: String,
-    pub mime_type: String,
-    pub size_bytes: i64,
-    pub url: FileUrl,
-}
-
 #[derive(Deserialize)]
 pub struct ReorderRequest {
-    pub ids: Vec<uuid::Uuid>,
+    pub ids: Vec<Uuid>,
 }
 
 #[derive(Deserialize)]
 pub struct MoveRequest {
-    pub id: uuid::Uuid,
-    pub parent_id: Option<uuid::Uuid>,
-}
-
-#[derive(Serialize)]
-pub struct TrashEntry {
-    pub id: uuid::Uuid,
-    pub name: String,
-    pub kind: String, // "folder" | "file_link"
-    pub mime_type: Option<String>,
-    pub deleted_at: chrono::DateTime<chrono::Utc>,
-    pub url: Option<FileUrl>,
+    pub id: Uuid,
+    pub parent_id: Option<Uuid>,
 }

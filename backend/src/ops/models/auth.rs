@@ -12,10 +12,9 @@ use std::time::Duration;
 fn is_valid_password(password: &str) -> bool {
     let has_uppercase = password.chars().any(|c| c.is_uppercase());
     let has_lowercase = password.chars().any(|c| c.is_lowercase());
-    let has_digit = password.chars().any(|c| c.is_digit(10));
+    let has_digit = password.chars().any(|c| c.is_ascii_digit());
     let has_symbol = password.chars().any(|c| !c.is_alphanumeric());
     let is_long_enough = password.len() >= 8;
-
     has_uppercase && has_lowercase && has_digit && has_symbol && is_long_enough
 }
 
@@ -58,12 +57,10 @@ pub struct Session {
 
 impl Session {
     const TOKEN_LENGTH: usize = 256;
-    const EXPIRY: Duration = Duration::from_secs(60 * 60 * 24); // 24 hours
+    const EXPIRY: Duration = Duration::from_secs(60 * 60 * 24);
 
-    /// Create a new session given a tx/pool and the username to create the session for
     pub async fn new<'c, E>(executor: E, username: String) -> Result<Self, crate::Error>
     where
-        // method is generic over either pool or transaction executor
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
         let token: String = Alphanumeric.sample_string(&mut rng(), Self::TOKEN_LENGTH);
@@ -134,7 +131,6 @@ impl ChangeUsername {
         if self.username.len() < 5 {
             return Err("Username must be at least 5 characters".to_string());
         }
-
         Ok(())
     }
 }
@@ -150,14 +146,8 @@ impl ChangePassword {
         if !is_valid_password(&self.new_password) {
             return Err("Password must contain at least one uppercase letter, one lowercase letter, one digit, and one special character".to_string());
         }
-
         Ok(())
     }
-}
-
-#[derive(Serialize)]
-pub struct TrashRetention {
-    pub days: i32,
 }
 
 #[derive(Deserialize)]

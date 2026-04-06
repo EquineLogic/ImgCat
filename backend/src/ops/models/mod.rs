@@ -1,7 +1,5 @@
-use serde::{Deserialize, Serialize};
+pub mod auth;
+pub mod filesystem;
 
-#[derive(Serialize, Deserialize, sqlx::FromRow)]
-pub struct Folder {
-    pub id: uuid::Uuid,
-    pub name: String,
-}
+pub use auth::*;
+pub use filesystem::*;
