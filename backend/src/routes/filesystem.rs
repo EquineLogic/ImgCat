@@ -6,7 +6,8 @@
 use crate::AppData;
 use crate::models::auth::LoggedInUser;
 use crate::models::filesystem::{
-    DeleteFile, DeleteFolder, FileEntry, FileUrl, Folder, ListParams, MoveRequest, NewFile, NewFolder, RenameRequest, ReorderRequest, TrashEntry
+    DeleteFile, DeleteFolder, FileEntry, FileUrl, ListParams, MoveRequest, NewFile, NewFolder,
+    RenameRequest, ReorderRequest, TrashEntry,
 };
 use crate::ops::{OpArgs, OpError, OpSuccess};
 use aws_sdk_s3::types::{Delete, ObjectIdentifier};
@@ -24,72 +25,37 @@ pub async fn create_folder(
     user: LoggedInUser,
     Json(payload): Json<NewFolder>,
 ) -> Result<OpSuccess, OpError> {
-    app.exec_op(OpArgs::CreateFolder { name: payload.name, parent_id: payload.parent_id }, Some(user.username)).await
+    app.exec_op(
+        OpArgs::CreateFolder {
+            name: payload.name,
+            parent_id: payload.parent_id,
+        },
+        Some(user.username),
+    )
+    .await
 }
 
 pub async fn list_folders(
     State(app): State<AppData>,
     user: LoggedInUser,
     Query(params): Query<ListParams>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let rows = sqlx::query(
-        "SELECT id, name FROM filesystem WHERE owner_username = $1 AND type = 'folder' AND parent_id IS NOT DISTINCT FROM $2 AND deleted_at IS NULL ORDER BY sort_order"
+) -> Result<OpSuccess, OpError> {
+    app.exec_op(
+        OpArgs::ListFolder {
+            parent_id: params.parent_id,
+        },
+        Some(user.username),
     )
-    .bind(&user.username)
-    .bind(params.parent_id)
-    .fetch_all(&app.pool)
     .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Database error: {e}"),
-        )
-    })?;
-
-    let folders: Vec<Folder> = rows
-        .into_iter()
-        .map(|row| Folder {
-            id: row.get("id"),
-            name: row.get("name"),
-        })
-        .collect();
-
-    Ok(Json(folders))
 }
 
 pub async fn delete_folder(
     State(app): State<AppData>,
     user: LoggedInUser,
     Json(payload): Json<DeleteFolder>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
-    // Cascade soft-delete: mark the folder and every descendant (via ltree subtree)
-    // as deleted. The path prefix match picks up the folder row itself plus every
-    // file/folder underneath it, in a single UPDATE.
-    let res = sqlx::query(
-        "UPDATE filesystem SET deleted_at = NOW(), updated_at = NOW()
-         WHERE owner_username = $2
-           AND deleted_at IS NULL
-           AND path <@ (
-               SELECT path FROM filesystem
-               WHERE id = $1 AND owner_username = $2 AND type = 'folder' AND deleted_at IS NULL
-           )",
-    )
-    .bind(payload.id)
-    .bind(&user.username)
-    .execute(&app.pool)
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Database error: {e}"),
-        )
-    })?;
-
-    if res.rows_affected() == 0 {
-        return Err((StatusCode::NOT_FOUND, "Folder not found".to_string()));
-    }
-
-    Ok(StatusCode::NO_CONTENT)
+) -> Result<OpSuccess, OpError> {
+    app.exec_op(OpArgs::DeleteFolder { id: payload.id }, Some(user.username))
+        .await
 }
 
 pub async fn rename_folder(
@@ -216,7 +182,7 @@ pub async fn list_files(
         name: String,
         size_bytes: i64,
         mime_type: String,
-        s3_fileid: String
+        s3_fileid: String,
     }
 
     let rows: Vec<Row> = sqlx::query_as(
@@ -241,8 +207,7 @@ pub async fn list_files(
 
     let mut files: Vec<FileEntry> = Vec::with_capacity(rows.len());
     for row in rows {
-        let furl = FileUrl::new(&app, row.s3_fileid).await
-        .map_err(|e| {
+        let furl = FileUrl::new(&app, row.s3_fileid).await.map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Database error: {e}"),
@@ -254,7 +219,7 @@ pub async fn list_files(
             name: row.name,
             mime_type: row.mime_type,
             size_bytes: row.size_bytes,
-            url: furl
+            url: furl,
         })
     }
 
@@ -516,8 +481,7 @@ pub async fn list_trash(
     for r in rows {
         let furl = match r.s3_fileid {
             Some(s3_fileid) => {
-                let furl = FileUrl::new(&app, s3_fileid).await
-                .map_err(|e| {
+                let furl = FileUrl::new(&app, s3_fileid).await.map_err(|e| {
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
                         format!("Database error: {e}"),
@@ -526,10 +490,17 @@ pub async fn list_trash(
 
                 Some(furl)
             }
-            None => None
+            None => None,
         };
 
-        items.push(TrashEntry { id: r.id, name: r.name, kind: r.kind, mime_type: r.mime_type, deleted_at: r.deleted_at, url: furl });
+        items.push(TrashEntry {
+            id: r.id,
+            name: r.name,
+            kind: r.kind,
+            mime_type: r.mime_type,
+            deleted_at: r.deleted_at,
+            url: furl,
+        });
     }
 
     Ok(Json(items))

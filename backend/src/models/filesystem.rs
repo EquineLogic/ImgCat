@@ -1,6 +1,6 @@
-use std::time::Duration;
 use aws_sdk_s3::presigning::PresigningConfig;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use uuid;
 
 use crate::AppData;
@@ -111,7 +111,7 @@ impl NewFile {
 #[serde(transparent)]
 /// Wrapper that stores the file url
 pub struct FileUrl {
-    url: String
+    url: String,
 }
 
 impl FileUrl {
@@ -120,14 +120,17 @@ impl FileUrl {
     /// Creates a new FileUrl for viewing the file with on the frontend. This file can be directly fetched by frontend without
     /// backend involvement (for faster performance)
     pub async fn new(data: &AppData, fileid: String) -> Result<Self, crate::Error> {
-        let presigned_request = data.s3
-        .get_object()
-        .bucket(&data.bucket)
-        .key(&fileid)
-        .presigned(PresigningConfig::expires_in(Self::URL_EXPIRY)?)
-        .await?;
+        let presigned_request = data
+            .s3
+            .get_object()
+            .bucket(&data.bucket)
+            .key(&fileid)
+            .presigned(PresigningConfig::expires_in(Self::URL_EXPIRY)?)
+            .await?;
 
-        Ok(Self { url: presigned_request.uri().to_string() })
+        Ok(Self {
+            url: presigned_request.uri().to_string(),
+        })
     }
 }
 
@@ -137,7 +140,7 @@ pub struct FileEntry {
     pub name: String,
     pub mime_type: String,
     pub size_bytes: i64,
-    pub url: FileUrl
+    pub url: FileUrl,
 }
 
 #[derive(Deserialize)]
@@ -158,5 +161,5 @@ pub struct TrashEntry {
     pub kind: String, // "folder" | "file_link"
     pub mime_type: Option<String>,
     pub deleted_at: chrono::DateTime<chrono::Utc>,
-    pub url: Option<FileUrl>
+    pub url: Option<FileUrl>,
 }

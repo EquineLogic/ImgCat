@@ -1,5 +1,5 @@
 use axum::response::IntoResponse;
-use axum::http::StatusCode;
+use axum::{Json, http::StatusCode};
 
 use crate::ops::{OpError, OpSuccess};
 
@@ -10,7 +10,11 @@ pub mod filesystem;
 impl IntoResponse for OpSuccess {
     fn into_response(self) -> axum::response::Response {
         match self {
-            Self::FolderCreated => (StatusCode::CREATED, "The folder has been created").into_response()
+            Self::FolderCreated => {
+                (StatusCode::CREATED, "The folder has been created").into_response()
+            }
+            Self::Folders { folders } => (StatusCode::OK, Json(folders)).into_response(),
+            Self::FolderDeleted => (StatusCode::OK).into_response(),
         }
     }
 }
@@ -21,7 +25,12 @@ impl IntoResponse for OpError {
         match self {
             Self::Generic(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
             Self::EntityConflict { reason } => (StatusCode::CONFLICT, reason).into_response(),
-            Self::UserNotLoggedIn => (StatusCode::UNAUTHORIZED, "You must be logged in to perform this operation").into_response()
+            Self::UserNotLoggedIn => (
+                StatusCode::UNAUTHORIZED,
+                "You must be logged in to perform this operation",
+            )
+                .into_response(),
+            Self::EntityNotFound { reason } => (StatusCode::NOT_FOUND, reason).into_response(),
         }
     }
 }
