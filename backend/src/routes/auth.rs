@@ -88,9 +88,8 @@ pub async fn sign_in(
 pub async fn check_auth(
     State(_app): State<AppData>,
     user: LoggedInUser,
-) -> Result<OpSuccess, OpError> {
-    // LoggedInUser extractor already verified auth and has the username
-    Ok(OpSuccess::AuthChecked { username: user.username })
+) -> Json<LoggedInUser> {
+    Json(user) // LoggedInUser extractor already verified auth and has the username
 }
 
 pub async fn sign_out(

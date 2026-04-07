@@ -50,7 +50,6 @@ pub enum OpArgs {
     // Auth
     Register { username: String, password: String, name: String },
     SignIn { username: String, password: String },
-    CheckAuth,
     SignOut,
     ChangeUsername { new_username: String },
     ChangePassword { curr_password: String, new_password: String },
@@ -97,7 +96,6 @@ pub enum OpSuccess {
 
     // Auth
     LoggedIn { username: String, token: String },
-    AuthChecked { username: String },
     SignedOut,
     UsernameChanged,
     PasswordChanged,
@@ -1255,16 +1253,6 @@ impl AppData {
                     username: session.username,
                     token: session.token,
                 })
-            }
-
-            OpArgs::CheckAuth => {
-                let Some(_uid) = user_id else {
-                    return Err(OpError::UserNotLoggedIn);
-                };
-
-                // username is not passed via user_id, but the route handler has it from LoggedInUser
-                // We return a placeholder; the route handler overrides with the actual username
-                Ok(OpSuccess::AuthChecked { username: String::new() })
             }
 
             OpArgs::SignOut => {

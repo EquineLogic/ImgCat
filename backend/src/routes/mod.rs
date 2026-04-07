@@ -47,9 +47,6 @@ impl IntoResponse for OpSuccess {
             Self::LoggedIn { username, .. } => {
                 (StatusCode::OK, Json(serde_json::json!({ "username": username }))).into_response()
             }
-            Self::AuthChecked { username } => {
-                (StatusCode::OK, Json(serde_json::json!({ "username": username }))).into_response()
-            }
             Self::SignedOut => (StatusCode::OK, "Signed out successfully").into_response(),
             Self::UsernameChanged => StatusCode::OK.into_response(),
             Self::PasswordChanged => StatusCode::OK.into_response(),
