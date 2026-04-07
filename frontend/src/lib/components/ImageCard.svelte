@@ -94,4 +94,4 @@
 
 <ShareModal bind:open={showShare} filesystemId={id} entryName={name} />
 
-<ImageViewer bind:open={viewerOpen} {id} {name} {url} />
+<ImageViewer bind:open={viewerOpen} {id} {name} {url} {readonly} />

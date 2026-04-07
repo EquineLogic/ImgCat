@@ -141,24 +141,24 @@ impl AppData {
     pub async fn exec_op(
         &self,
         op: OpArgs,
-        username: Option<String>,
+        user_id: Option<Uuid>,
     ) -> Result<OpSuccess, OpError> {
         match op {
             // ─── Filesystem ─────────────────────────────────────────
 
             OpArgs::CreateFolder { name, parent_id } => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
                 let row = sqlx::query(
-                    "INSERT INTO filesystem (name, type, owner_username, parent_id, sort_order)
+                    "INSERT INTO filesystem (name, type, owner_id, parent_id, sort_order)
                     VALUES ($1, 'folder', $2, $3,
-                        COALESCE((SELECT MAX(sort_order) FROM filesystem WHERE parent_id IS NOT DISTINCT FROM $3 AND owner_username = $2 AND deleted_at IS NULL), 0) + 1
+                        COALESCE((SELECT MAX(sort_order) FROM filesystem WHERE parent_id IS NOT DISTINCT FROM $3 AND owner_id = $2 AND deleted_at IS NULL), 0) + 1
                     ) ON CONFLICT (parent_id, name) WHERE deleted_at IS NULL DO NOTHING"
                 )
                 .bind(name)
-                .bind(username)
+                .bind(uid)
                 .bind(parent_id)
                 .execute(&self.pool)
                 .await?;
@@ -173,14 +173,14 @@ impl AppData {
             }
 
             OpArgs::ListFolder { parent_id } => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
                 let rows: Vec<Folder> = sqlx::query_as(
-                    "SELECT id, name FROM filesystem WHERE owner_username = $1 AND type = 'folder' AND parent_id IS NOT DISTINCT FROM $2 AND deleted_at IS NULL ORDER BY sort_order"
+                    "SELECT id, name FROM filesystem WHERE owner_id = $1 AND type = 'folder' AND parent_id IS NOT DISTINCT FROM $2 AND deleted_at IS NULL ORDER BY sort_order"
                 )
-                .bind(username)
+                .bind(uid)
                 .bind(parent_id)
                 .fetch_all(&self.pool)
                 .await?;
@@ -189,21 +189,21 @@ impl AppData {
             }
 
             OpArgs::DeleteFolder { id } => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
                 let res = sqlx::query(
                     "UPDATE filesystem SET deleted_at = NOW(), updated_at = NOW()
-                            WHERE owner_username = $2
+                            WHERE owner_id = $2
                             AND deleted_at IS NULL
                             AND path <@ (
                                 SELECT path FROM filesystem
-                                WHERE id = $1 AND owner_username = $2 AND type = 'folder' AND deleted_at IS NULL
+                                WHERE id = $1 AND owner_id = $2 AND type = 'folder' AND deleted_at IS NULL
                             )",
                 )
                 .bind(id)
-                .bind(&username)
+                .bind(uid)
                 .execute(&self.pool)
                 .await?;
 
@@ -217,16 +217,16 @@ impl AppData {
             }
 
             OpArgs::RenameFolder { id, name } => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
                 let res = sqlx::query(
-                    "UPDATE filesystem SET name = $1, updated_at = NOW() WHERE id = $2 AND owner_username = $3 AND type = 'folder' AND deleted_at IS NULL",
+                    "UPDATE filesystem SET name = $1, updated_at = NOW() WHERE id = $2 AND owner_id = $3 AND type = 'folder' AND deleted_at IS NULL",
                 )
                 .bind(&name)
                 .bind(id)
-                .bind(&username)
+                .bind(uid)
                 .execute(&self.pool)
                 .await?;
 
@@ -240,7 +240,7 @@ impl AppData {
             }
 
             OpArgs::UploadFile { data, name, mime_type, parent_id } => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
@@ -259,9 +259,9 @@ impl AppData {
                 let mut tx = self.pool.begin().await?;
 
                 let f_row = sqlx::query(
-                    "INSERT INTO files (owner_username, s3_fileid, size_bytes, mime_type) VALUES ($1, $2, $3, $4) RETURNING id"
+                    "INSERT INTO files (owner_id, s3_fileid, size_bytes, mime_type) VALUES ($1, $2, $3, $4) RETURNING id"
                 )
-                .bind(&username)
+                .bind(uid)
                 .bind(&s3_key)
                 .bind(data.len() as i64)
                 .bind(&mime_type)
@@ -271,13 +271,13 @@ impl AppData {
                 let f_id: Uuid = f_row.get("id");
 
                 let fs_row = sqlx::query(
-                    "INSERT INTO filesystem (name, type, owner_username, parent_id, file_id, sort_order)
+                    "INSERT INTO filesystem (name, type, owner_id, parent_id, file_id, sort_order)
                      VALUES ($1, 'file_link', $2, $3, $4,
-                        COALESCE((SELECT MAX(sort_order) FROM filesystem WHERE parent_id IS NOT DISTINCT FROM $3 AND owner_username = $2 AND deleted_at IS NULL), 0) + 1
+                        COALESCE((SELECT MAX(sort_order) FROM filesystem WHERE parent_id IS NOT DISTINCT FROM $3 AND owner_id = $2 AND deleted_at IS NULL), 0) + 1
                      )"
                 )
                 .bind(&name)
-                .bind(&username)
+                .bind(uid)
                 .bind(parent_id)
                 .bind(f_id)
                 .execute(&mut *tx)
@@ -294,7 +294,7 @@ impl AppData {
             }
 
             OpArgs::ListFiles { parent_id } => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
@@ -302,12 +302,12 @@ impl AppData {
                     "SELECT fs.id, fs.name, f.size_bytes, f.mime_type, f.s3_fileid
                           FROM filesystem fs
                           JOIN files f ON fs.file_id = f.id
-                          WHERE fs.owner_username = $1 AND fs.type = 'file_link'
+                          WHERE fs.owner_id = $1 AND fs.type = 'file_link'
                           AND fs.parent_id IS NOT DISTINCT FROM $2
                           AND fs.deleted_at IS NULL
                           ORDER BY fs.sort_order",
                 )
-                .bind(&username)
+                .bind(uid)
                 .bind(parent_id)
                 .fetch_all(&self.pool)
                 .await?;
@@ -329,7 +329,7 @@ impl AppData {
             }
 
             OpArgs::GetFile { id } => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
@@ -337,10 +337,10 @@ impl AppData {
                     "SELECT f.s3_fileid, f.mime_type
                           FROM filesystem fs
                           JOIN files f on fs.file_id = f.id
-                          WHERE fs.id = $1 AND fs.owner_username = $2 AND fs.type = 'file_link'",
+                          WHERE fs.id = $1 AND fs.owner_id = $2 AND fs.type = 'file_link'",
                 )
                 .bind(&id)
-                .bind(&username)
+                .bind(uid)
                 .fetch_one(&self.pool)
                 .await?;
 
@@ -366,17 +366,17 @@ impl AppData {
             }
 
             OpArgs::RenameFile { id, name } => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
                 let res = sqlx::query(
                     "UPDATE filesystem SET name = $1, updated_at = NOW()
-                     WHERE id = $2 AND owner_username = $3 AND type = 'file_link' AND deleted_at IS NULL",
+                     WHERE id = $2 AND owner_id = $3 AND type = 'file_link' AND deleted_at IS NULL",
                 )
                 .bind(&name)
                 .bind(id)
-                .bind(&username)
+                .bind(uid)
                 .execute(&self.pool)
                 .await
                 .map_err(|e| {
@@ -400,16 +400,16 @@ impl AppData {
             }
 
             OpArgs::DeleteFile { id } => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
                 let res = sqlx::query(
                     "UPDATE filesystem SET deleted_at = NOW(), updated_at = NOW()
-                     WHERE id = $1 AND owner_username = $2 AND type = 'file_link' AND deleted_at IS NULL",
+                     WHERE id = $1 AND owner_id = $2 AND type = 'file_link' AND deleted_at IS NULL",
                 )
                 .bind(id)
-                .bind(&username)
+                .bind(uid)
                 .execute(&self.pool)
                 .await?;
 
@@ -423,7 +423,7 @@ impl AppData {
             }
 
             OpArgs::Reorder { ids } => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
@@ -431,11 +431,11 @@ impl AppData {
 
                 for (i, id) in ids.iter().enumerate() {
                     sqlx::query(
-                        "UPDATE filesystem SET sort_order = $1 WHERE id = $2 AND owner_username = $3 AND deleted_at IS NULL"
+                        "UPDATE filesystem SET sort_order = $1 WHERE id = $2 AND owner_id = $3 AND deleted_at IS NULL"
                     )
                     .bind((i + 1) as i32)
                     .bind(id)
-                    .bind(&username)
+                    .bind(uid)
                     .execute(&mut *tx)
                     .await?;
                 }
@@ -445,21 +445,21 @@ impl AppData {
             }
 
             OpArgs::MoveEntry { id, parent_id } => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
                 let res = sqlx::query(
                     "UPDATE filesystem
                      SET parent_id = $1,
-                         sort_order = COALESCE((SELECT MAX(sort_order) FROM filesystem WHERE parent_id IS NOT DISTINCT FROM $1 AND owner_username = $3 AND deleted_at IS NULL), 0) + 1,
+                         sort_order = COALESCE((SELECT MAX(sort_order) FROM filesystem WHERE parent_id IS NOT DISTINCT FROM $1 AND owner_id = $3 AND deleted_at IS NULL), 0) + 1,
                          updated_at = NOW()
-                     WHERE id = $2 AND owner_username = $3 AND deleted_at IS NULL
+                     WHERE id = $2 AND owner_id = $3 AND deleted_at IS NULL
                        AND id <> $1
                        AND ($1 IS NULL OR EXISTS (
                            SELECT 1 FROM filesystem p
                            WHERE p.id = $1
-                             AND p.owner_username = $3
+                             AND p.owner_id = $3
                              AND p.type = 'folder'
                              AND p.deleted_at IS NULL
                              AND NOT (p.path <@ (SELECT path FROM filesystem WHERE id = $2 AND deleted_at IS NULL))
@@ -467,7 +467,7 @@ impl AppData {
                 )
                 .bind(parent_id)
                 .bind(id)
-                .bind(&username)
+                .bind(uid)
                 .execute(&self.pool)
                 .await
                 .map_err(|e| {
@@ -491,7 +491,7 @@ impl AppData {
             }
 
             OpArgs::ListTrash => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
@@ -499,18 +499,18 @@ impl AppData {
                     "SELECT fs.id, fs.name, fs.type::text AS kind, fs.deleted_at, f.mime_type, f.s3_fileid
                        FROM filesystem fs
                        LEFT JOIN files f ON fs.file_id = f.id
-                      WHERE fs.owner_username = $1
+                      WHERE fs.owner_id = $1
                         AND fs.deleted_at IS NOT NULL
                         AND NOT EXISTS (
                             SELECT 1 FROM filesystem anc
-                            WHERE anc.owner_username = $1
+                            WHERE anc.owner_id = $1
                               AND anc.deleted_at IS NOT NULL
                               AND anc.id <> fs.id
                               AND fs.path <@ anc.path
                         )
                       ORDER BY fs.deleted_at DESC, fs.name",
                 )
-                .bind(&username)
+                .bind(uid)
                 .fetch_all(&self.pool)
                 .await?;
 
@@ -536,19 +536,19 @@ impl AppData {
             }
 
             OpArgs::RestoreEntry { id } => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
                 let res = sqlx::query(
                     "UPDATE filesystem SET deleted_at = NULL, updated_at = NOW()
-                     WHERE owner_username = $2
+                     WHERE owner_id = $2
                        AND deleted_at IS NOT NULL
-                       AND path <@ (SELECT path FROM filesystem WHERE id = $1 AND owner_username = $2 AND deleted_at IS NOT NULL)
-                       AND deleted_at = (SELECT deleted_at FROM filesystem WHERE id = $1 AND owner_username = $2)",
+                       AND path <@ (SELECT path FROM filesystem WHERE id = $1 AND owner_id = $2 AND deleted_at IS NOT NULL)
+                       AND deleted_at = (SELECT deleted_at FROM filesystem WHERE id = $1 AND owner_id = $2)",
                 )
                 .bind(id)
-                .bind(&username)
+                .bind(uid)
                 .execute(&self.pool)
                 .await
                 .map_err(|e| {
@@ -572,7 +572,7 @@ impl AppData {
             }
 
             OpArgs::DeleteTrashEntry { id } => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
@@ -581,12 +581,12 @@ impl AppData {
                 let file_rows = sqlx::query(
                     "SELECT fs.file_id, f.s3_fileid FROM filesystem fs
                        JOIN files f ON fs.file_id = f.id
-                       WHERE fs.owner_username = $1
+                       WHERE fs.owner_id = $1
                          AND fs.deleted_at IS NOT NULL
-                         AND fs.path <@ (SELECT path FROM filesystem WHERE id = $2 AND owner_username = $1 AND deleted_at IS NOT NULL)
+                         AND fs.path <@ (SELECT path FROM filesystem WHERE id = $2 AND owner_id = $1 AND deleted_at IS NOT NULL)
                          AND fs.type = 'file_link'",
                 )
-                .bind(&username)
+                .bind(uid)
                 .bind(id)
                 .fetch_all(&mut *tx)
                 .await?;
@@ -599,11 +599,11 @@ impl AppData {
                 }
 
                 let fs_res = sqlx::query(
-                    "DELETE FROM filesystem WHERE owner_username = $1
+                    "DELETE FROM filesystem WHERE owner_id = $1
                        AND deleted_at IS NOT NULL
-                       AND path <@ (SELECT path FROM filesystem WHERE id = $2 AND owner_username = $1 AND deleted_at IS NOT NULL)",
+                       AND path <@ (SELECT path FROM filesystem WHERE id = $2 AND owner_id = $1 AND deleted_at IS NOT NULL)",
                 )
-                .bind(&username)
+                .bind(uid)
                 .bind(id)
                 .execute(&mut *tx)
                 .await?;
@@ -615,8 +615,8 @@ impl AppData {
                 }
 
                 if !file_ids.is_empty() {
-                    sqlx::query("DELETE FROM files WHERE owner_username = $1 AND id = ANY($2)")
-                        .bind(&username)
+                    sqlx::query("DELETE FROM files WHERE owner_id = $1 AND id = ANY($2)")
+                        .bind(uid)
                         .bind(&file_ids)
                         .execute(&mut *tx)
                         .await?;
@@ -656,22 +656,16 @@ impl AppData {
             // ─── Sharing ────────────────────────────────────────────
 
             OpArgs::SendShareRequest { filesystem_id, recipient_username, access_level } => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
-                if username == recipient_username {
-                    return Err(OpError::ValidationFailed {
-                        reason: "Cannot share with yourself".into(),
-                    });
-                }
-
                 // Verify caller owns the entry
                 let entry_exists = sqlx::query(
-                    "SELECT 1 FROM filesystem WHERE id = $1 AND owner_username = $2 AND deleted_at IS NULL"
+                    "SELECT 1 FROM filesystem WHERE id = $1 AND owner_id = $2 AND deleted_at IS NULL"
                 )
                 .bind(filesystem_id)
-                .bind(&username)
+                .bind(uid)
                 .fetch_optional(&self.pool)
                 .await?;
 
@@ -679,14 +673,22 @@ impl AppData {
                     return Err(OpError::EntityNotFound { reason: "Entry not found" });
                 }
 
-                // Verify recipient exists
-                let recipient_exists = sqlx::query("SELECT 1 FROM users WHERE username = $1")
+                // Look up recipient by username
+                let recipient_row = sqlx::query("SELECT id FROM users WHERE username = $1")
                     .bind(&recipient_username)
                     .fetch_optional(&self.pool)
                     .await?;
 
-                if recipient_exists.is_none() {
+                let Some(recipient_row) = recipient_row else {
                     return Err(OpError::EntityNotFound { reason: "User not found" });
+                };
+
+                let recipient_id: Uuid = recipient_row.get("id");
+
+                if uid == recipient_id {
+                    return Err(OpError::ValidationFailed {
+                        reason: "Cannot share with yourself".into(),
+                    });
                 }
 
                 // Validate access_level
@@ -697,13 +699,13 @@ impl AppData {
                 }
 
                 let res = sqlx::query(
-                    "INSERT INTO share_requests (filesystem_id, sender_username, recipient_username, access_level)
+                    "INSERT INTO share_requests (filesystem_id, sender_id, recipient_id, access_level)
                      VALUES ($1, $2, $3, $4::access_level)
-                     ON CONFLICT (filesystem_id, recipient_username) DO NOTHING"
+                     ON CONFLICT (filesystem_id, recipient_id) DO NOTHING"
                 )
                 .bind(filesystem_id)
-                .bind(&username)
-                .bind(&recipient_username)
+                .bind(uid)
+                .bind(recipient_id)
                 .bind(&access_level)
                 .execute(&self.pool)
                 .await?;
@@ -718,15 +720,15 @@ impl AppData {
             }
 
             OpArgs::CancelShareRequest { id } => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
                 let res = sqlx::query(
-                    "DELETE FROM share_requests WHERE id = $1 AND sender_username = $2"
+                    "DELETE FROM share_requests WHERE id = $1 AND sender_id = $2"
                 )
                 .bind(id)
-                .bind(&username)
+                .bind(uid)
                 .execute(&self.pool)
                 .await?;
 
@@ -738,7 +740,7 @@ impl AppData {
             }
 
             OpArgs::AcceptShareRequest { id } => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
@@ -746,11 +748,11 @@ impl AppData {
 
                 // Fetch and delete the request (must be addressed to caller)
                 let row = sqlx::query(
-                    "DELETE FROM share_requests WHERE id = $1 AND recipient_username = $2
-                     RETURNING filesystem_id, sender_username, access_level::text"
+                    "DELETE FROM share_requests WHERE id = $1 AND recipient_id = $2
+                     RETURNING filesystem_id, sender_id, access_level::text"
                 )
                 .bind(id)
-                .bind(&username)
+                .bind(uid)
                 .fetch_optional(&mut *tx)
                 .await?;
 
@@ -759,19 +761,19 @@ impl AppData {
                 };
 
                 let filesystem_id: Uuid = row.get("filesystem_id");
-                let sender: String = row.get("sender_username");
+                let sender_id: Uuid = row.get("sender_id");
                 let access_level: String = row.get("access_level");
 
                 // Insert permission
                 sqlx::query(
-                    "INSERT INTO permissions (filesystem_id, grantee_username, access_level, granted_by)
+                    "INSERT INTO permissions (filesystem_id, grantee_id, access_level, granted_by_id)
                      VALUES ($1, $2, $3::access_level, $4)
-                     ON CONFLICT (filesystem_id, grantee_username) DO UPDATE SET access_level = $3::access_level"
+                     ON CONFLICT (filesystem_id, grantee_id) DO UPDATE SET access_level = $3::access_level"
                 )
                 .bind(filesystem_id)
-                .bind(&username)
+                .bind(uid)
                 .bind(&access_level)
-                .bind(&sender)
+                .bind(sender_id)
                 .execute(&mut *tx)
                 .await?;
 
@@ -780,15 +782,15 @@ impl AppData {
             }
 
             OpArgs::DeclineShareRequest { id } => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
                 let res = sqlx::query(
-                    "DELETE FROM share_requests WHERE id = $1 AND recipient_username = $2"
+                    "DELETE FROM share_requests WHERE id = $1 AND recipient_id = $2"
                 )
                 .bind(id)
-                .bind(&username)
+                .bind(uid)
                 .execute(&self.pool)
                 .await?;
 
@@ -800,21 +802,24 @@ impl AppData {
             }
 
             OpArgs::ListPendingRequests => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
                 let rows: Vec<ShareRequestRow> = sqlx::query_as(
                     "SELECT sr.id, sr.filesystem_id, fs.name AS entry_name, fs.type::text AS entry_type,
-                            sr.sender_username, sr.recipient_username, sr.access_level::text AS access_level,
+                            su.username AS sender_username, ru.username AS recipient_username,
+                            sr.access_level::text AS access_level,
                             sr.created_at, f.s3_fileid
                      FROM share_requests sr
                      JOIN filesystem fs ON sr.filesystem_id = fs.id
+                     JOIN users su ON sr.sender_id = su.id
+                     JOIN users ru ON sr.recipient_id = ru.id
                      LEFT JOIN files f ON fs.file_id = f.id
-                     WHERE sr.recipient_username = $1 AND fs.deleted_at IS NULL
+                     WHERE sr.recipient_id = $1 AND fs.deleted_at IS NULL
                      ORDER BY sr.created_at DESC"
                 )
-                .bind(&username)
+                .bind(uid)
                 .fetch_all(&self.pool)
                 .await?;
 
@@ -836,21 +841,24 @@ impl AppData {
             }
 
             OpArgs::ListSentRequests => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
                 let rows: Vec<ShareRequestRow> = sqlx::query_as(
                     "SELECT sr.id, sr.filesystem_id, fs.name AS entry_name, fs.type::text AS entry_type,
-                            sr.sender_username, sr.recipient_username, sr.access_level::text AS access_level,
+                            su.username AS sender_username, ru.username AS recipient_username,
+                            sr.access_level::text AS access_level,
                             sr.created_at, f.s3_fileid
                      FROM share_requests sr
                      JOIN filesystem fs ON sr.filesystem_id = fs.id
+                     JOIN users su ON sr.sender_id = su.id
+                     JOIN users ru ON sr.recipient_id = ru.id
                      LEFT JOIN files f ON fs.file_id = f.id
-                     WHERE sr.sender_username = $1 AND fs.deleted_at IS NULL
+                     WHERE sr.sender_id = $1 AND fs.deleted_at IS NULL
                      ORDER BY sr.created_at DESC"
                 )
-                .bind(&username)
+                .bind(uid)
                 .fetch_all(&self.pool)
                 .await?;
 
@@ -872,15 +880,15 @@ impl AppData {
             }
 
             OpArgs::RevokePermission { id } => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
                 let res = sqlx::query(
-                    "DELETE FROM permissions WHERE id = $1 AND granted_by = $2"
+                    "DELETE FROM permissions WHERE id = $1 AND granted_by_id = $2"
                 )
                 .bind(id)
-                .bind(&username)
+                .bind(uid)
                 .execute(&self.pool)
                 .await?;
 
@@ -892,21 +900,24 @@ impl AppData {
             }
 
             OpArgs::ListMyGrants => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
                 let rows: Vec<PermissionRow> = sqlx::query_as(
                     "SELECT p.id, p.filesystem_id, fs.name AS entry_name, fs.type::text AS entry_type,
-                            p.grantee_username, p.granted_by, p.access_level::text AS access_level,
+                            gu.username AS grantee_username, gbu.username AS granted_by,
+                            p.access_level::text AS access_level,
                             p.created_at, f.s3_fileid
                      FROM permissions p
                      JOIN filesystem fs ON p.filesystem_id = fs.id
+                     JOIN users gu ON p.grantee_id = gu.id
+                     LEFT JOIN users gbu ON p.granted_by_id = gbu.id
                      LEFT JOIN files f ON fs.file_id = f.id
-                     WHERE p.granted_by = $1 AND fs.deleted_at IS NULL
+                     WHERE p.granted_by_id = $1 AND fs.deleted_at IS NULL
                      ORDER BY p.created_at DESC"
                 )
-                .bind(&username)
+                .bind(uid)
                 .fetch_all(&self.pool)
                 .await?;
 
@@ -928,21 +939,24 @@ impl AppData {
             }
 
             OpArgs::ListSharedWithMe => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
                 let rows: Vec<PermissionRow> = sqlx::query_as(
                     "SELECT p.id, p.filesystem_id, fs.name AS entry_name, fs.type::text AS entry_type,
-                            p.grantee_username, p.granted_by, p.access_level::text AS access_level,
+                            gu.username AS grantee_username, gbu.username AS granted_by,
+                            p.access_level::text AS access_level,
                             p.created_at, f.s3_fileid
                      FROM permissions p
                      JOIN filesystem fs ON p.filesystem_id = fs.id
+                     JOIN users gu ON p.grantee_id = gu.id
+                     LEFT JOIN users gbu ON p.granted_by_id = gbu.id
                      LEFT JOIN files f ON fs.file_id = f.id
-                     WHERE p.grantee_username = $1 AND fs.deleted_at IS NULL
+                     WHERE p.grantee_id = $1 AND fs.deleted_at IS NULL
                      ORDER BY p.created_at DESC"
                 )
-                .bind(&username)
+                .bind(uid)
                 .fetch_all(&self.pool)
                 .await?;
 
@@ -964,7 +978,7 @@ impl AppData {
             }
 
             OpArgs::ListSharedFolder { permission_filesystem_id, parent_id } => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
@@ -972,10 +986,10 @@ impl AppData {
                 let perm_row = sqlx::query(
                     "SELECT fs.path::text FROM permissions p
                      JOIN filesystem fs ON p.filesystem_id = fs.id
-                     WHERE p.filesystem_id = $1 AND p.grantee_username = $2 AND fs.deleted_at IS NULL"
+                     WHERE p.filesystem_id = $1 AND p.grantee_id = $2 AND fs.deleted_at IS NULL"
                 )
                 .bind(permission_filesystem_id)
-                .bind(&username)
+                .bind(uid)
                 .fetch_optional(&self.pool)
                 .await?;
 
@@ -1003,7 +1017,7 @@ impl AppData {
             }
 
             OpArgs::ListSharedFiles { permission_filesystem_id, parent_id } => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
@@ -1011,10 +1025,10 @@ impl AppData {
                 let perm_row = sqlx::query(
                     "SELECT fs.path::text FROM permissions p
                      JOIN filesystem fs ON p.filesystem_id = fs.id
-                     WHERE p.filesystem_id = $1 AND p.grantee_username = $2 AND fs.deleted_at IS NULL"
+                     WHERE p.filesystem_id = $1 AND p.grantee_id = $2 AND fs.deleted_at IS NULL"
                 )
                 .bind(permission_filesystem_id)
-                .bind(&username)
+                .bind(uid)
                 .fetch_optional(&self.pool)
                 .await?;
 
@@ -1052,7 +1066,7 @@ impl AppData {
             }
 
             OpArgs::GetSharedFile { id } => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
@@ -1064,13 +1078,13 @@ impl AppData {
                        AND EXISTS (
                            SELECT 1 FROM permissions p
                            JOIN filesystem fs_shared ON p.filesystem_id = fs_shared.id
-                           WHERE p.grantee_username = $2
+                           WHERE p.grantee_id = $2
                              AND fs_shared.deleted_at IS NULL
                              AND fs.path <@ fs_shared.path
                        )"
                 )
                 .bind(id)
-                .bind(&username)
+                .bind(uid)
                 .fetch_optional(&self.pool)
                 .await?;
 
@@ -1099,7 +1113,7 @@ impl AppData {
             }
 
             OpArgs::CopySharedFile { filesystem_id, parent_id } => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
@@ -1112,13 +1126,13 @@ impl AppData {
                        AND EXISTS (
                            SELECT 1 FROM permissions p
                            JOIN filesystem fs_shared ON p.filesystem_id = fs_shared.id
-                           WHERE p.grantee_username = $2
+                           WHERE p.grantee_id = $2
                              AND fs_shared.deleted_at IS NULL
                              AND fs.path <@ fs_shared.path
                        )"
                 )
                 .bind(filesystem_id)
-                .bind(&username)
+                .bind(uid)
                 .fetch_optional(&self.pool)
                 .await?;
 
@@ -1135,9 +1149,9 @@ impl AppData {
                 let mut tx = self.pool.begin().await?;
 
                 let f_row = sqlx::query(
-                    "INSERT INTO files (owner_username, s3_fileid, size_bytes, mime_type) VALUES ($1, $2, $3, $4) RETURNING id"
+                    "INSERT INTO files (owner_id, s3_fileid, size_bytes, mime_type) VALUES ($1, $2, $3, $4) RETURNING id"
                 )
-                .bind(&username)
+                .bind(uid)
                 .bind(&s3_fileid)
                 .bind(size_bytes)
                 .bind(&mime_type)
@@ -1147,13 +1161,13 @@ impl AppData {
                 let f_id: Uuid = f_row.get("id");
 
                 sqlx::query(
-                    "INSERT INTO filesystem (name, type, owner_username, parent_id, file_id, sort_order)
+                    "INSERT INTO filesystem (name, type, owner_id, parent_id, file_id, sort_order)
                      VALUES ($1, 'file_link', $2, $3, $4,
-                        COALESCE((SELECT MAX(sort_order) FROM filesystem WHERE parent_id IS NOT DISTINCT FROM $3 AND owner_username = $2 AND deleted_at IS NULL), 0) + 1
+                        COALESCE((SELECT MAX(sort_order) FROM filesystem WHERE parent_id IS NOT DISTINCT FROM $3 AND owner_id = $2 AND deleted_at IS NULL), 0) + 1
                      )"
                 )
                 .bind(&name)
-                .bind(&username)
+                .bind(uid)
                 .bind(parent_id)
                 .bind(f_id)
                 .execute(&mut *tx)
@@ -1181,21 +1195,23 @@ impl AppData {
                 let mut tx = self.pool.begin().await?;
 
                 let res = sqlx::query(
-                    "INSERT INTO users (username, name, password) VALUES ($1, $2, $3) ON CONFLICT (username) DO NOTHING"
+                    "INSERT INTO users (username, name, password) VALUES ($1, $2, $3) ON CONFLICT (username) DO NOTHING RETURNING id"
                 )
                 .bind(&username)
                 .bind(&name)
                 .bind(&hashed_password)
-                .execute(&mut *tx)
+                .fetch_optional(&mut *tx)
                 .await?;
 
-                if res.rows_affected() == 0 {
+                let Some(row) = res else {
                     return Err(OpError::EntityConflict {
                         reason: "Username already exists",
                     });
-                }
+                };
 
-                let session = models::auth::Session::new(&mut *tx, username).await
+                let new_user_id: Uuid = row.get("id");
+
+                let session = models::auth::Session::new(&mut *tx, new_user_id, username).await
                     .map_err(|e| OpError::Generic(e))?;
 
                 tx.commit().await?;
@@ -1209,7 +1225,7 @@ impl AppData {
             OpArgs::SignIn { username, password } => {
                 let mut tx = self.pool.begin().await?;
 
-                let row = sqlx::query("SELECT password FROM users WHERE username = $1")
+                let row = sqlx::query("SELECT id, password FROM users WHERE username = $1")
                     .bind(&username)
                     .fetch_one(&mut *tx)
                     .await
@@ -1217,6 +1233,7 @@ impl AppData {
                         reason: "Invalid username or password".into(),
                     })?;
 
+                let found_user_id: Uuid = row.get("id");
                 let hashed_password: String = row.get("password");
 
                 let argon2 = Argon2::default();
@@ -1229,7 +1246,7 @@ impl AppData {
                         reason: "Invalid username or password".into(),
                     })?;
 
-                let session = models::auth::Session::new(&mut *tx, username).await
+                let session = models::auth::Session::new(&mut *tx, found_user_id, username).await
                     .map_err(|e| OpError::Generic(e))?;
 
                 tx.commit().await?;
@@ -1241,20 +1258,22 @@ impl AppData {
             }
 
             OpArgs::CheckAuth => {
-                let Some(username) = username else {
+                let Some(_uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
-                Ok(OpSuccess::AuthChecked { username })
+                // username is not passed via user_id, but the route handler has it from LoggedInUser
+                // We return a placeholder; the route handler overrides with the actual username
+                Ok(OpSuccess::AuthChecked { username: String::new() })
             }
 
             OpArgs::SignOut => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
-                let row = sqlx::query("DELETE FROM sessions WHERE username = $1")
-                    .bind(&username)
+                let row = sqlx::query("DELETE FROM sessions WHERE user_id = $1")
+                    .bind(uid)
                     .execute(&self.pool)
                     .await?;
 
@@ -1268,13 +1287,13 @@ impl AppData {
             }
 
             OpArgs::ChangeUsername { new_username } => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
-                sqlx::query("UPDATE users SET username = $1 WHERE username = $2")
+                sqlx::query("UPDATE users SET username = $1 WHERE id = $2")
                     .bind(&new_username)
-                    .bind(&username)
+                    .bind(uid)
                     .execute(&self.pool)
                     .await
                     .map_err(|e| {
@@ -1292,12 +1311,12 @@ impl AppData {
             }
 
             OpArgs::ChangePassword { curr_password, new_password } => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
-                let row = sqlx::query("SELECT password FROM users WHERE username = $1")
-                    .bind(&username)
+                let row = sqlx::query("SELECT password FROM users WHERE id = $1")
+                    .bind(uid)
                     .fetch_one(&self.pool)
                     .await?;
 
@@ -1315,9 +1334,9 @@ impl AppData {
 
                 let new_hash = salt_and_hash_password(&new_password);
 
-                sqlx::query("UPDATE users SET password = $1 WHERE username = $2")
+                sqlx::query("UPDATE users SET password = $1 WHERE id = $2")
                     .bind(&new_hash)
-                    .bind(&username)
+                    .bind(uid)
                     .execute(&self.pool)
                     .await?;
 
@@ -1325,12 +1344,12 @@ impl AppData {
             }
 
             OpArgs::GetTrashRetention => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
-                let row = sqlx::query("SELECT trash_retention_days FROM users WHERE username = $1")
-                    .bind(&username)
+                let row = sqlx::query("SELECT trash_retention_days FROM users WHERE id = $1")
+                    .bind(uid)
                     .fetch_one(&self.pool)
                     .await?;
 
@@ -1339,7 +1358,7 @@ impl AppData {
             }
 
             OpArgs::SetTrashRetention { days } => {
-                let Some(username) = username else {
+                let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
@@ -1350,9 +1369,9 @@ impl AppData {
                     });
                 }
 
-                sqlx::query("UPDATE users SET trash_retention_days = $1 WHERE username = $2")
+                sqlx::query("UPDATE users SET trash_retention_days = $1 WHERE id = $2")
                     .bind(days)
-                    .bind(&username)
+                    .bind(uid)
                     .execute(&self.pool)
                     .await?;
 

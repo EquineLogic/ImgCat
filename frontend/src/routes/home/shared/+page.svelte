@@ -186,35 +186,29 @@
 			<!-- Accepted shares -->
 			{#if $sharedWithMe.length > 0}
 				<h2 class="text-sm font-semibold text-white/40 uppercase tracking-wider mb-3">Shared Items</h2>
-				<div class="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-4">
-					{#each $sharedWithMe as item}
-						<button
-							onclick={() => {
-								if (item.entry_type === 'folder') {
-									openSharedFolder(item);
-								}
-							}}
-							class="group flex flex-col items-center gap-3 p-4 rounded-2xl
-							       bg-white/5 border border-white/10
-							       hover:bg-tw-purple/10 hover:border-tw-purple/30
-							       cursor-pointer transition-all duration-200 text-left w-full"
-						>
-							{#if item.url}
-								<img src={item.url} alt={item.entry_name} class="w-full aspect-square object-cover rounded-xl" />
-							{:else}
-								<div class="w-full aspect-square rounded-xl bg-tw-yellow/5 flex items-center justify-center">
-									<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-12 h-12 text-tw-yellow/30">
-										<path d="M2 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2z" />
-									</svg>
-								</div>
-							{/if}
-							<div class="w-full">
-								<p class="text-sm text-white/70 group-hover:text-white truncate transition-colors">{item.entry_name}</p>
-								<p class="text-xs text-white/30">by {item.granted_by}</p>
+
+				{@const sharedFolders = $sharedWithMe.filter(i => i.entry_type === 'folder')}
+				{@const sharedFiles = $sharedWithMe.filter(i => i.entry_type === 'file_link')}
+
+				{#if sharedFolders.length > 0}
+					<div class="flex flex-wrap gap-2 mb-6">
+						{#each sharedFolders as item}
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<!-- svelte-ignore a11y_click_events_have_key_events -->
+							<div onclick={() => openSharedFolder(item)}>
+								<FolderCard name={item.entry_name} id={item.filesystem_id} readonly />
 							</div>
-						</button>
-					{/each}
-				</div>
+						{/each}
+					</div>
+				{/if}
+
+				{#if sharedFiles.length > 0}
+					<div class="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-4">
+						{#each sharedFiles as item}
+							<ImageCard name={item.entry_name} id={item.filesystem_id} url={item.url ?? ''} readonly />
+						{/each}
+					</div>
+				{/if}
 			{:else if $pendingRequests.length === 0}
 				<div class="flex flex-col items-center gap-4 mt-20 text-center">
 					<div class="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">

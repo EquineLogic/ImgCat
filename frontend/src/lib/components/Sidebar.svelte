@@ -52,14 +52,14 @@
 						action: () => (showUpload = true)
 					},
 					{
-						label: 'Share Item',
-						icon: 'share',
-						action: () => (showShareItem = true)
-					},
-					{
 						label: 'My Library',
 						href: '/home',
 						icon: 'library'
+					},
+					{
+						label: 'Share Item',
+						icon: 'share',
+						action: () => (showShareItem = true)
 					},
 					{
 						label: 'Shared with Me',
@@ -596,26 +596,44 @@
 		onsubmit={(e) => { e.preventDefault(); shareItem(); }}
 		class="flex flex-col gap-4"
 	>
-		<label class="flex flex-col gap-1">
-			<span class="text-tw-yellow text-sm">Item to share</span>
+		<div class="flex flex-col gap-1.5">
+			<span class="text-tw-yellow text-sm">Select an item</span>
 			{#if shareableItems.length === 0}
 				<p class="text-sm text-white/30">No items in this folder to share.</p>
 			{:else}
-				<select
-					bind:value={shareSelectedId}
-					class="rounded-lg px-4 py-2.5 bg-tw-darkblue/80
-					       border border-tw-purple/40 text-white
-					       focus:outline-none focus:ring-2 focus:ring-tw-neon"
-				>
-					<option value="" disabled>Select an item...</option>
+				<div class="max-h-48 overflow-y-auto rounded-xl border border-tw-purple/30 bg-tw-darkblue/50 p-1.5 flex flex-col gap-0.5">
 					{#each shareableItems as item}
-						<option value={item.id}>
-							{item.type === 'folder' ? '📁' : '🖼️'} {item.name}
-						</option>
+						<button
+							type="button"
+							onclick={() => (shareSelectedId = item.id)}
+							class="flex items-center gap-3 px-3 py-2 rounded-lg text-left
+							       transition-all duration-150 cursor-pointer
+							       {shareSelectedId === item.id
+								? 'bg-tw-purple/20 border border-tw-neon/40 text-white'
+								: 'border border-transparent text-white/60 hover:text-white hover:bg-white/5'}"
+						>
+							{#if item.type === 'folder'}
+								<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-5 h-5 shrink-0 text-tw-yellow/60">
+									<path d="M2 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2z" />
+								</svg>
+							{:else}
+								<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-5 h-5 shrink-0 text-tw-pink/60">
+									<rect x="3" y="3" width="18" height="18" rx="2" />
+									<circle cx="8.5" cy="8.5" r="1.5" />
+									<path d="M21 15l-5-5L5 21" />
+								</svg>
+							{/if}
+							<span class="text-sm truncate">{item.name}</span>
+							{#if shareSelectedId === item.id}
+								<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="w-4 h-4 ml-auto shrink-0 text-tw-neon">
+									<polyline points="20 6 9 17 4 12" />
+								</svg>
+							{/if}
+						</button>
 					{/each}
-				</select>
+				</div>
 			{/if}
-		</label>
+		</div>
 
 		<label class="flex flex-col gap-1">
 			<span class="text-tw-yellow text-sm">Share with username</span>

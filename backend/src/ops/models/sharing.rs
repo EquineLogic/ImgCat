@@ -4,6 +4,7 @@ use uuid::Uuid;
 use super::FileUrl;
 
 // ── Response types ─────────────────────────────────────────────────────
+// These still expose usernames for frontend display — the backend JOINs to get them.
 
 #[derive(Serialize)]
 pub struct ShareRequestEntry {

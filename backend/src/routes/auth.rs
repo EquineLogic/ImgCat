@@ -86,17 +86,18 @@ pub async fn sign_in(
 }
 
 pub async fn check_auth(
-    State(app): State<AppData>,
+    State(_app): State<AppData>,
     user: LoggedInUser,
 ) -> Result<OpSuccess, OpError> {
-    app.exec_op(OpArgs::CheckAuth, Some(user.username)).await
+    // LoggedInUser extractor already verified auth and has the username
+    Ok(OpSuccess::AuthChecked { username: user.username })
 }
 
 pub async fn sign_out(
     State(app): State<AppData>,
     user: LoggedInUser,
 ) -> Result<impl IntoResponse, OpError> {
-    app.exec_op(OpArgs::SignOut, Some(user.username)).await?;
+    app.exec_op(OpArgs::SignOut, Some(user.user_id)).await?;
 
     let cookie = "session_token=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0";
     let mut response = (StatusCode::OK, "Signed out successfully").into_response();
@@ -121,7 +122,7 @@ pub async fn change_username(
         OpArgs::ChangeUsername {
             new_username: payload.username,
         },
-        Some(user.username),
+        Some(user.user_id),
     )
     .await
 }
@@ -140,7 +141,7 @@ pub async fn change_password(
             curr_password: payload.curr_password,
             new_password: payload.new_password,
         },
-        Some(user.username),
+        Some(user.user_id),
     )
     .await
 }
@@ -149,7 +150,7 @@ pub async fn get_trash_retention(
     State(app): State<AppData>,
     user: LoggedInUser,
 ) -> Result<OpSuccess, OpError> {
-    app.exec_op(OpArgs::GetTrashRetention, Some(user.username))
+    app.exec_op(OpArgs::GetTrashRetention, Some(user.user_id))
         .await
 }
 
@@ -160,7 +161,7 @@ pub async fn set_trash_retention(
 ) -> Result<OpSuccess, OpError> {
     app.exec_op(
         OpArgs::SetTrashRetention { days: payload.days },
-        Some(user.username),
+        Some(user.user_id),
     )
     .await
 }

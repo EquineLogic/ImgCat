@@ -3,11 +3,12 @@
 	import ConfirmModal from './ConfirmModal.svelte';
 	import { fetchFiles } from '$lib/stores/files';
 
-	let { open = $bindable(false), id, name, url: fileurl } = $props<{
+	let { open = $bindable(false), id, name, url: fileurl, readonly = false } = $props<{
 		open: boolean;
 		id: string;
 		name: string;
 		url: string;
+		readonly?: boolean;
 	}>();
 
 	// Zoom / pan state
@@ -195,6 +196,7 @@
 								</svg>
 								Download
 							</button>
+							{#if !readonly}
 							<button
 								onclick={openRename}
 								class="flex items-center gap-2.5 px-3.5 py-2 text-sm text-white/70 hover:text-white hover:bg-white/10 cursor-pointer transition-colors duration-150"
@@ -216,6 +218,7 @@
 								</svg>
 								Delete
 							</button>
+							{/if}
 						</div>
 					{/if}
 				</div>
