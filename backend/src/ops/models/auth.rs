@@ -159,3 +159,8 @@ impl ChangePassword {
 pub struct SetTrashRetention {
     pub days: i32,
 }
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+pub enum SessionType {
+    Login
+}

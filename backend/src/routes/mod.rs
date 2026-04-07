@@ -1,7 +1,10 @@
+use axum::http::HeaderValue;
 use axum::http::header::CONTENT_TYPE;
 use axum::response::IntoResponse;
 use axum::{Json, http::StatusCode};
+use reqwest::header::SET_COOKIE;
 
+use crate::ops::models::SessionType;
 use crate::ops::{OpError, OpSuccess};
 
 pub mod auth;
@@ -42,10 +45,20 @@ impl IntoResponse for OpSuccess {
             Self::SharedFolders { folders } => (StatusCode::OK, Json(folders)).into_response(),
             Self::SharedFiles { files } => (StatusCode::OK, Json(files)).into_response(),
             Self::FileCopied => (StatusCode::CREATED, "File copied to your library").into_response(),
+            Self::CreatedSession { username, token, token_type } => {
+                let mut resp = (StatusCode::OK, Json(serde_json::json!({ "username": username, "token": token }))).into_response();
+                if token_type == SessionType::Login {
+                    // Cookie helper
+                    let cookie = format!(
+                        "session_token={}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800",
+                        token
+                    );
 
-            // Auth — LoggedIn is handled specially in the route handler (cookie)
-            Self::LoggedIn { username, .. } => {
-                (StatusCode::OK, Json(serde_json::json!({ "username": username }))).into_response()
+                    if let Ok(hv) = HeaderValue::from_str(&cookie) {
+                        resp.headers_mut().insert(SET_COOKIE, hv);
+                    }
+                }
+                resp
             }
             Self::SignedOut => (StatusCode::OK, "Signed out successfully").into_response(),
             Self::UsernameChanged => StatusCode::OK.into_response(),

@@ -6,14 +6,6 @@ use crate::ops::{OpArgs, OpError, OpSuccess};
 use axum::http::{HeaderValue, StatusCode, header::SET_COOKIE};
 use axum::{Json, extract::State, response::IntoResponse};
 
-// Cookie helper
-fn session_cookie(token: &str) -> String {
-    format!(
-        "session_token={}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800",
-        token
-    )
-}
-
 pub async fn register(
     State(app): State<AppData>,
     Json(payload): Json<RegisterRequest>,
@@ -22,41 +14,23 @@ pub async fn register(
         return Err(OpError::ValidationFailed { reason: e });
     }
 
-    let result = app
-        .exec_op(
-            OpArgs::Register {
-                username: payload.username,
-                password: payload.password,
-                name: payload.name,
-            },
-            None,
-        )
-        .await?;
-
-    match result {
-        OpSuccess::LoggedIn { username, token } => {
-            let cookie = session_cookie(&token);
-            let mut response = (
-                StatusCode::OK,
-                Json(serde_json::json!({ "username": username })),
-            )
-                .into_response();
-            response.headers_mut().insert(
-                SET_COOKIE,
-                HeaderValue::from_str(&cookie)
-                    .map_err(|e| OpError::Generic(format!("Failed to create cookie: {e}").into()))?,
-            );
-            Ok(response)
-        }
-        other => Ok(other.into_response()),
-    }
+    app
+    .exec_op(
+        OpArgs::Register {
+            username: payload.username,
+            password: payload.password,
+            name: payload.name,
+        },
+        None,
+    )
+    .await
 }
 
 pub async fn sign_in(
     State(app): State<AppData>,
     Json(payload): Json<SignInRequest>,
 ) -> Result<impl IntoResponse, OpError> {
-    let result = app
+    app
         .exec_op(
             OpArgs::SignIn {
                 username: payload.username,
@@ -64,25 +38,7 @@ pub async fn sign_in(
             },
             None,
         )
-        .await?;
-
-    match result {
-        OpSuccess::LoggedIn { username, token } => {
-            let cookie = session_cookie(&token);
-            let mut response = (
-                StatusCode::OK,
-                Json(serde_json::json!({ "username": username })),
-            )
-                .into_response();
-            response.headers_mut().insert(
-                SET_COOKIE,
-                HeaderValue::from_str(&cookie)
-                    .map_err(|e| OpError::Generic(format!("Failed to create cookie: {e}").into()))?,
-            );
-            Ok(response)
-        }
-        other => Ok(other.into_response()),
-    }
+        .await
 }
 
 pub async fn check_auth(

@@ -95,7 +95,7 @@ pub enum OpSuccess {
     FileCopied,
 
     // Auth
-    LoggedIn { username: String, token: String },
+    CreatedSession { username: String, token: String, token_type: SessionType },
     SignedOut,
     UsernameChanged,
     PasswordChanged,
@@ -1214,9 +1214,10 @@ impl AppData {
 
                 tx.commit().await?;
 
-                Ok(OpSuccess::LoggedIn {
+                Ok(OpSuccess::CreatedSession {
                     username: session.username,
                     token: session.token,
+                    token_type: SessionType::Login
                 })
             }
 
@@ -1249,9 +1250,10 @@ impl AppData {
 
                 tx.commit().await?;
 
-                Ok(OpSuccess::LoggedIn {
+                Ok(OpSuccess::CreatedSession {
                     username: session.username,
                     token: session.token,
+                    token_type: SessionType::Login
                 })
             }
 
