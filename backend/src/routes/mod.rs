@@ -46,7 +46,7 @@ impl IntoResponse for OpSuccess {
             Self::SharedFiles { files } => (StatusCode::OK, Json(files)).into_response(),
             Self::FileCopied => (StatusCode::CREATED, "File copied to your library").into_response(),
             Self::CreatedSession { username, token, token_type } => {
-                let mut resp = (StatusCode::OK, Json(serde_json::json!({ "username": username, "token": token }))).into_response();
+                let mut resp = (StatusCode::OK, Json(serde_json::json!({ "username": username, "token": token, "token_type": token_type }))).into_response();
                 if token_type == SessionType::Login {
                     // Cookie helper
                     let cookie = format!(
