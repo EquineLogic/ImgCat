@@ -11,8 +11,8 @@ use crate::ops::models::{
 };
 use crate::ops::{OpArgs, OpError, OpSuccess};
 use axum::{
-    extract::{Multipart, Path, Query, State},
     Json,
+    extract::{Multipart, Path, Query, State},
 };
 use uuid::Uuid;
 
@@ -142,11 +142,8 @@ pub async fn reorder(
     user: LoggedInUser,
     Json(payload): Json<ReorderRequest>,
 ) -> Result<OpSuccess, OpError> {
-    app.exec_op(
-        OpArgs::Reorder { ids: payload.ids },
-        Some(user.username),
-    )
-    .await
+    app.exec_op(OpArgs::Reorder { ids: payload.ids }, Some(user.username))
+        .await
 }
 
 pub async fn move_entry(
@@ -176,11 +173,8 @@ pub async fn restore_entry(
     user: LoggedInUser,
     Json(payload): Json<DeleteFolder>,
 ) -> Result<OpSuccess, OpError> {
-    app.exec_op(
-        OpArgs::RestoreEntry { id: payload.id },
-        Some(user.username),
-    )
-    .await
+    app.exec_op(OpArgs::RestoreEntry { id: payload.id }, Some(user.username))
+        .await
 }
 
 pub async fn delete_trash_entry(

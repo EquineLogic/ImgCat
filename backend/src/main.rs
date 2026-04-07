@@ -49,6 +49,20 @@ async fn main() {
             "/delete_trash_entry",
             post(routes::filesystem::delete_trash_entry),
         )
+        // Sharing
+        .route("/send_share_request", post(routes::sharing::send_share_request))
+        .route("/cancel_share_request", post(routes::sharing::cancel_share_request))
+        .route("/accept_share_request", post(routes::sharing::accept_share_request))
+        .route("/decline_share_request", post(routes::sharing::decline_share_request))
+        .route("/pending_requests", get(routes::sharing::list_pending_requests))
+        .route("/sent_requests", get(routes::sharing::list_sent_requests))
+        .route("/revoke_permission", post(routes::sharing::revoke_permission))
+        .route("/my_grants", get(routes::sharing::list_my_grants))
+        .route("/shared_with_me", get(routes::sharing::list_shared_with_me))
+        .route("/shared_folder", get(routes::sharing::list_shared_folder))
+        .route("/shared_files", get(routes::sharing::list_shared_files))
+        .route("/shared_file/{id}", get(routes::sharing::get_shared_file))
+        .route("/copy_shared_file", post(routes::sharing::copy_shared_file))
         .route("/change_username", post(routes::auth::change_username))
         .route("/change_password", post(routes::auth::change_password))
         .route(

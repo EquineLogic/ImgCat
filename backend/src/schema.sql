@@ -121,3 +121,62 @@ CREATE UNIQUE INDEX unique_name_per_folder
     ON filesystem (parent_id, name)
     NULLS NOT DISTINCT
     WHERE deleted_at IS NULL;
+
+
+-- 8. SHARING & PERMISSIONS
+
+-- Permission levels: viewer (read-only), editor (future: mutate), owner (future: full control)
+CREATE TYPE access_level AS ENUM ('viewer', 'editor', 'owner');
+
+-- Transient inbox for pending share requests. Rows are deleted on accept or decline.
+CREATE TABLE share_requests (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    filesystem_id UUID NOT NULL REFERENCES filesystem(id) ON DELETE CASCADE,
+    sender_username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE ON UPDATE CASCADE,
+    recipient_username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE ON UPDATE CASCADE,
+    access_level access_level NOT NULL DEFAULT 'viewer',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(filesystem_id, recipient_username)
+);
+
+CREATE INDEX idx_share_requests_recipient ON share_requests(recipient_username);
+
+-- Source of truth for granted access. Only contains accepted permissions.
+CREATE TABLE permissions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    filesystem_id UUID NOT NULL REFERENCES filesystem(id) ON DELETE CASCADE,
+    grantee_username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE ON UPDATE CASCADE,
+    access_level access_level NOT NULL DEFAULT 'viewer',
+    granted_by TEXT REFERENCES users(username) ON DELETE SET NULL ON UPDATE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(filesystem_id, grantee_username)
+);
+
+CREATE INDEX idx_permissions_grantee ON permissions(grantee_username);
+CREATE INDEX idx_permissions_filesystem ON permissions(filesystem_id);
+
+-- 9. SECURITY VIEW
+-- Merges "I own it" with "I have permission" so backend queries can use
+-- `WHERE accessible_by = $username` instead of duplicating ownership/permission logic.
+CREATE VIEW accessible_filesystem AS
+-- Items the user owns
+SELECT fs.id, fs.parent_id, fs.name, fs.type, fs.file_id,
+       fs.owner_username AS accessible_by,
+       'owner'::access_level AS access_level,
+       fs.path, fs.sort_order, fs.created_at, fs.updated_at
+FROM filesystem fs
+WHERE fs.deleted_at IS NULL
+
+UNION ALL
+
+-- Items shared via permissions (includes descendants of shared folders via LTREE)
+SELECT fs.id, fs.parent_id, fs.name, fs.type, fs.file_id,
+       p.grantee_username AS accessible_by,
+       p.access_level,
+       fs.path, fs.sort_order, fs.created_at, fs.updated_at
+FROM filesystem fs
+JOIN permissions p ON fs.path <@ (
+    SELECT pfs.path FROM filesystem pfs
+    WHERE pfs.id = p.filesystem_id AND pfs.deleted_at IS NULL
+)
+WHERE fs.deleted_at IS NULL;

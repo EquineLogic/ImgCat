@@ -3,8 +3,10 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import Modal from './Modal.svelte';
-	import { fetchFolders, currentFolderId } from '$lib/stores/folders';
-	import { fetchFiles } from '$lib/stores/files';
+	import { fetchFolders, currentFolderId, folders } from '$lib/stores/folders';
+	import { fetchFiles, files } from '$lib/stores/files';
+	import { pendingRequests, fetchPendingRequests, sendShareRequest } from '$lib/stores/sharing';
+	import { onMount } from 'svelte';
 
 	let { mode = 'home' }: { mode?: 'home' | 'settings' } = $props();
 
@@ -19,13 +21,22 @@
 	let folderError = $state('');
 
 	let showUpload = $state(false);
-	let uploadFile: File | null = $state(null);
-	let uploadPreview: string | null = $state(null);
-	let uploadName = $state('');
+	let uploadFiles: File[] = $state([]);
 	let uploadError = $state('');
 	let uploading = $state(false);
 
+	let showShareItem = $state(false);
+	let shareUsername = $state('');
+	let shareSelectedId = $state('');
+	let shareError = $state('');
+	let sharing = $state(false);
+
 	const collapsed = $derived(sidebarWidth < COLLAPSE_THRESHOLD);
+	const pendingCount = $derived($pendingRequests.length);
+
+	onMount(() => {
+		fetchPendingRequests();
+	});
 
 	const navItems = $derived(
 		mode === 'home'
@@ -41,9 +52,20 @@
 						action: () => (showUpload = true)
 					},
 					{
+						label: 'Share Item',
+						icon: 'share',
+						action: () => (showShareItem = true)
+					},
+					{
 						label: 'My Library',
 						href: '/home',
 						icon: 'library'
+					},
+					{
+						label: 'Shared with Me',
+						href: '/home/shared',
+						icon: 'share',
+						badge: pendingCount > 0 ? pendingCount : undefined
 					}
 				]
 			: [
@@ -97,39 +119,38 @@
 
 	function onFileSelect(e: Event) {
 		const input = e.target as HTMLInputElement;
-		const file = input.files?.[0] ?? null;
-		uploadFile = file;
-		if (file) {
-			uploadPreview = URL.createObjectURL(file);
-			// Strip extension for a cleaner default name (e.g. "cat.png" -> "cat")
-			uploadName = file.name.replace(/\.[^.]+$/, '');
-		} else {
-			uploadPreview = null;
-			uploadName = '';
+		const files = input.files;
+		if (files && files.length > 0) {
+			uploadFiles = [...uploadFiles, ...Array.from(files)];
 		}
+		input.value = '';
 	}
 
-	async function uploadImage() {
-		if (!uploadFile) return;
+	function removeFile(index: number) {
+		uploadFiles = uploadFiles.filter((_, i) => i !== index);
+	}
+
+	async function uploadImages() {
+		if (uploadFiles.length === 0) return;
 		uploading = true;
 		uploadError = '';
-		const form = new FormData();
-		form.append('file', uploadFile);
-		form.append('name', uploadName.trim() || uploadFile.name);
-		if ($currentFolderId) form.append('parent_id', $currentFolderId);
 		try {
-			const res = await fetch('http://localhost:3000/upload_file', {
-				method: 'POST',
-				credentials: 'include',
-				body: form
-			});
-			if (!res.ok) {
-				uploadError = await res.text();
-				return;
+			for (const file of uploadFiles) {
+				const form = new FormData();
+				form.append('file', file);
+				form.append('name', file.name.replace(/\.[^.]+$/, ''));
+				if ($currentFolderId) form.append('parent_id', $currentFolderId);
+				const res = await fetch('http://localhost:3000/upload_file', {
+					method: 'POST',
+					credentials: 'include',
+					body: form
+				});
+				if (!res.ok) {
+					uploadError = `Failed to upload ${file.name}: ${await res.text()}`;
+					return;
+				}
 			}
-			uploadFile = null;
-			uploadPreview = null;
-			uploadName = '';
+			uploadFiles = [];
 			uploadError = '';
 			showUpload = false;
 			await fetchFiles();
@@ -137,6 +158,28 @@
 			uploadError = 'Upload failed';
 		} finally {
 			uploading = false;
+		}
+	}
+
+	const shareableItems = $derived([
+		...$folders.map((f) => ({ id: f.id, name: f.name, type: 'folder' as const })),
+		...$files.map((f) => ({ id: f.id, name: f.name, type: 'file' as const }))
+	]);
+
+	async function shareItem() {
+		if (!shareSelectedId || !shareUsername.trim()) return;
+		sharing = true;
+		shareError = '';
+		try {
+			await sendShareRequest(shareSelectedId, shareUsername.trim());
+			shareUsername = '';
+			shareSelectedId = '';
+			shareError = '';
+			showShareItem = false;
+		} catch (e: any) {
+			shareError = e.message || 'Failed to share';
+		} finally {
+			sharing = false;
 		}
 	}
 
@@ -263,6 +306,23 @@
 			<path d="M19 12H5" />
 			<path d="M12 19l-7-7 7-7" />
 		</svg>
+	{:else if icon === 'share'}
+		<svg
+			xmlns="http://www.w3.org/2000/svg"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="1.8"
+			stroke-linecap="round"
+			stroke-linejoin="round"
+			class="w-5 h-5 shrink-0"
+		>
+			<circle cx="18" cy="5" r="3" />
+			<circle cx="6" cy="12" r="3" />
+			<circle cx="18" cy="19" r="3" />
+			<line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+			<line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+		</svg>
 	{:else if icon === 'library'}
 		<svg
 			xmlns="http://www.w3.org/2000/svg"
@@ -332,7 +392,12 @@
 					{#if !collapsed}
 						<span class="text-sm font-medium truncate">{item.label}</span>
 					{/if}
-					{#if isActive(item.href ?? '') && !collapsed}
+					{#if item.badge && !collapsed}
+						<span
+							class="ml-auto px-1.5 py-0.5 text-[10px] font-bold rounded-full
+							       bg-tw-pink text-white leading-none min-w-[18px] text-center"
+						>{item.badge}</span>
+					{:else if isActive(item.href ?? '') && !collapsed}
 						<span
 							class="ml-auto w-1.5 h-1.5 rounded-full bg-tw-neon
 							       shadow-[0_0_6px_rgba(0,245,255,0.6)]"
@@ -465,42 +530,99 @@
 	</form>
 </Modal>
 
-<Modal bind:open={showUpload} title="Upload Image">
+<Modal bind:open={showUpload} title="Upload Images">
 	<div class="flex flex-col gap-4">
 		<label
 			class="flex flex-col items-center justify-center gap-2 p-6 rounded-xl
 			       border-2 border-dashed border-tw-purple/40 hover:border-tw-neon/50
 			       cursor-pointer transition-colors duration-200"
 		>
-			{#if uploadPreview}
-				<img src={uploadPreview} alt="Preview" class="max-h-48 rounded-lg object-contain" />
-				<span class="text-xs text-white/40 mt-1">{uploadFile?.name}</span>
+			<svg
+				xmlns="http://www.w3.org/2000/svg"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="1.5"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+				class="w-10 h-10 text-white/20"
+			>
+				<rect x="3" y="3" width="18" height="18" rx="2" />
+				<circle cx="8.5" cy="8.5" r="1.5" />
+				<path d="M21 15l-5-5L5 21" />
+			</svg>
+			<span class="text-sm text-white/30">Click to select images</span>
+			<input type="file" accept="image/*" multiple onchange={onFileSelect} class="hidden" />
+		</label>
+
+		{#if uploadFiles.length > 0}
+			<div class="grid grid-cols-3 gap-2 max-h-60 overflow-y-auto">
+				{#each uploadFiles as file, i}
+					<div class="relative group">
+						<img src={URL.createObjectURL(file)} alt={file.name} class="w-full h-20 rounded-lg object-cover" />
+						<button
+							onclick={() => removeFile(i)}
+							class="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white/80
+							       text-xs flex items-center justify-center opacity-0 group-hover:opacity-100
+							       transition-opacity cursor-pointer"
+						>&times;</button>
+						<span class="text-[10px] text-white/40 truncate block mt-0.5">{file.name}</span>
+					</div>
+				{/each}
+			</div>
+		{/if}
+
+		{#if uploadError}
+			<p class="text-sm text-red-400">{uploadError}</p>
+		{/if}
+
+		<button
+			onclick={uploadImages}
+			disabled={uploadFiles.length === 0 || uploading}
+			class="rounded-lg py-2.5 font-semibold text-white
+			       transition-colors duration-200
+			       focus:outline-none focus:ring-2 focus:ring-tw-neon
+			       {uploadFiles.length > 0 && !uploading
+				? 'bg-tw-purple hover:bg-tw-pink cursor-pointer'
+				: 'bg-white/10 text-white/30 cursor-not-allowed'}"
+		>
+			{uploading ? 'Uploading...' : `Upload ${uploadFiles.length > 0 ? `(${uploadFiles.length})` : ''}`}
+		</button>
+	</div>
+</Modal>
+
+<Modal bind:open={showShareItem} title="Share Item">
+	<form
+		onsubmit={(e) => { e.preventDefault(); shareItem(); }}
+		class="flex flex-col gap-4"
+	>
+		<label class="flex flex-col gap-1">
+			<span class="text-tw-yellow text-sm">Item to share</span>
+			{#if shareableItems.length === 0}
+				<p class="text-sm text-white/30">No items in this folder to share.</p>
 			{:else}
-				<svg
-					xmlns="http://www.w3.org/2000/svg"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="1.5"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					class="w-10 h-10 text-white/20"
+				<select
+					bind:value={shareSelectedId}
+					class="rounded-lg px-4 py-2.5 bg-tw-darkblue/80
+					       border border-tw-purple/40 text-white
+					       focus:outline-none focus:ring-2 focus:ring-tw-neon"
 				>
-					<rect x="3" y="3" width="18" height="18" rx="2" />
-					<circle cx="8.5" cy="8.5" r="1.5" />
-					<path d="M21 15l-5-5L5 21" />
-				</svg>
-				<span class="text-sm text-white/30">Click to select an image</span>
+					<option value="" disabled>Select an item...</option>
+					{#each shareableItems as item}
+						<option value={item.id}>
+							{item.type === 'folder' ? '📁' : '🖼️'} {item.name}
+						</option>
+					{/each}
+				</select>
 			{/if}
-			<input type="file" accept="image/*" onchange={onFileSelect} class="hidden" />
 		</label>
 
 		<label class="flex flex-col gap-1">
-			<span class="text-tw-yellow text-sm">Name</span>
+			<span class="text-tw-yellow text-sm">Share with username</span>
 			<input
 				type="text"
-				bind:value={uploadName}
-				placeholder="Image name"
+				bind:value={shareUsername}
+				placeholder="Enter username"
 				class="rounded-lg px-4 py-2.5 bg-tw-darkblue/80
 				       border border-tw-purple/40 text-white
 				       placeholder:text-white/30
@@ -508,22 +630,22 @@
 			/>
 		</label>
 
-		{#if uploadError}
-			<p class="text-sm text-red-400">{uploadError}</p>
+		{#if shareError}
+			<p class="text-sm text-red-400">{shareError}</p>
 		{/if}
 
 		<button
-			onclick={uploadImage}
-			disabled={!uploadFile || uploading}
+			type="submit"
+			disabled={!shareSelectedId || !shareUsername.trim() || sharing}
 			class="rounded-lg py-2.5 font-semibold text-white
 			       transition-colors duration-200
 			       focus:outline-none focus:ring-2 focus:ring-tw-neon
-			       {uploadFile && !uploading
+			       {shareSelectedId && shareUsername.trim() && !sharing
 				? 'bg-tw-purple hover:bg-tw-pink cursor-pointer'
 				: 'bg-white/10 text-white/30 cursor-not-allowed'}"
 		>
-			{uploading ? 'Uploading...' : 'Upload'}
+			{sharing ? 'Sharing...' : 'Share'}
 		</button>
-	</div>
+	</form>
 </Modal>
 {/if}

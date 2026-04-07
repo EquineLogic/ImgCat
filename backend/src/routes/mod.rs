@@ -6,6 +6,7 @@ use crate::ops::{OpError, OpSuccess};
 
 pub mod auth;
 pub mod filesystem;
+pub mod sharing;
 
 impl IntoResponse for OpSuccess {
     fn into_response(self) -> axum::response::Response {
@@ -27,6 +28,20 @@ impl IntoResponse for OpSuccess {
             Self::TrashItems { items } => (StatusCode::OK, Json(items)).into_response(),
             Self::EntryRestored => StatusCode::NO_CONTENT.into_response(),
             Self::TrashEntryDeleted => StatusCode::NO_CONTENT.into_response(),
+
+            // Sharing
+            Self::ShareRequestSent => (StatusCode::CREATED, "Share request sent").into_response(),
+            Self::ShareRequestCancelled => StatusCode::NO_CONTENT.into_response(),
+            Self::ShareRequestAccepted => StatusCode::OK.into_response(),
+            Self::ShareRequestDeclined => StatusCode::NO_CONTENT.into_response(),
+            Self::PendingRequests { requests } => (StatusCode::OK, Json(requests)).into_response(),
+            Self::SentRequests { requests } => (StatusCode::OK, Json(requests)).into_response(),
+            Self::PermissionRevoked => StatusCode::NO_CONTENT.into_response(),
+            Self::MyGrants { grants } => (StatusCode::OK, Json(grants)).into_response(),
+            Self::SharedWithMe { items } => (StatusCode::OK, Json(items)).into_response(),
+            Self::SharedFolders { folders } => (StatusCode::OK, Json(folders)).into_response(),
+            Self::SharedFiles { files } => (StatusCode::OK, Json(files)).into_response(),
+            Self::FileCopied => (StatusCode::CREATED, "File copied to your library").into_response(),
 
             // Auth — LoggedIn is handled specially in the route handler (cookie)
             Self::LoggedIn { username, .. } => {

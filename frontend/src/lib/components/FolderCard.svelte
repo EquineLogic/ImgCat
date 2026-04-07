@@ -1,9 +1,10 @@
 <script lang="ts">
 	import ContextMenu from './ContextMenu.svelte';
 	import RenameModal from './RenameModal.svelte';
+	import ShareModal from './ShareModal.svelte';
 	import { fetchFolders, openFolder } from '$lib/stores/folders';
 
-	let { name, id } = $props<{ name: string; id: string }>();
+	let { name, id, readonly = false } = $props<{ name: string; id: string; readonly?: boolean }>();
 
 	function handleClick() {
 		openFolder(id, name);
@@ -13,6 +14,7 @@
 	let menuX = $state(0);
 	let menuY = $state(0);
 	let showRename = $state(false);
+	let showShare = $state(false);
 
 	function onContextMenu(e: MouseEvent) {
 		e.preventDefault();
@@ -45,19 +47,26 @@
 		}
 	}
 
-	const menuItems = [
-		{
-			label: 'Rename',
-			icon: 'rename',
-			action: () => (showRename = true)
-		},
-		{
-			label: 'Delete',
-			icon: 'delete',
-			danger: true,
-			action: deleteFolder
-		}
-	];
+	const menuItems = $derived(readonly
+		? []
+		: [
+				{
+					label: 'Share',
+					icon: 'share',
+					action: () => (showShare = true)
+				},
+				{
+					label: 'Rename',
+					icon: 'rename',
+					action: () => (showRename = true)
+				},
+				{
+					label: 'Delete',
+					icon: 'delete',
+					danger: true,
+					action: deleteFolder
+				}
+			]);
 </script>
 
 <button
@@ -88,3 +97,5 @@
 <ContextMenu bind:open={menuOpen} x={menuX} y={menuY} items={menuItems} />
 
 <RenameModal bind:open={showRename} title="Rename Folder" currentName={name} onSubmit={submitRename} />
+
+<ShareModal bind:open={showShare} filesystemId={id} entryName={name} />

@@ -32,6 +32,21 @@ pub enum OpArgs {
     RestoreEntry { id: Uuid },
     DeleteTrashEntry { id: Uuid },
 
+    // Sharing
+    SendShareRequest { filesystem_id: Uuid, recipient_username: String, access_level: String },
+    CancelShareRequest { id: Uuid },
+    AcceptShareRequest { id: Uuid },
+    DeclineShareRequest { id: Uuid },
+    ListPendingRequests,
+    ListSentRequests,
+    RevokePermission { id: Uuid },
+    ListMyGrants,
+    ListSharedWithMe,
+    ListSharedFolder { permission_filesystem_id: Uuid, parent_id: Option<Uuid> },
+    ListSharedFiles { permission_filesystem_id: Uuid, parent_id: Option<Uuid> },
+    GetSharedFile { id: Uuid },
+    CopySharedFile { filesystem_id: Uuid, parent_id: Option<Uuid> },
+
     // Auth
     Register { username: String, password: String, name: String },
     SignIn { username: String, password: String },
@@ -64,6 +79,21 @@ pub enum OpSuccess {
     TrashItems { items: Vec<TrashEntry> },
     EntryRestored,
     TrashEntryDeleted,
+
+    // Sharing
+    ShareRequestSent,
+    ShareRequestCancelled,
+    ShareRequestAccepted,
+    ShareRequestDeclined,
+    PendingRequests { requests: Vec<ShareRequestEntry> },
+    SentRequests { requests: Vec<ShareRequestEntry> },
+    PermissionRevoked,
+    MyGrants { grants: Vec<PermissionEntry> },
+    SharedWithMe { items: Vec<PermissionEntry> },
+    SharedFolders { folders: Vec<Folder> },
+    SharedFiles { files: Vec<FileEntry> },
+    // GetSharedFile reuses FileData
+    FileCopied,
 
     // Auth
     LoggedIn { username: String, token: String },
@@ -621,6 +651,526 @@ impl AppData {
                 }
 
                 Ok(OpSuccess::TrashEntryDeleted)
+            }
+
+            // ─── Sharing ────────────────────────────────────────────
+
+            OpArgs::SendShareRequest { filesystem_id, recipient_username, access_level } => {
+                let Some(username) = username else {
+                    return Err(OpError::UserNotLoggedIn);
+                };
+
+                if username == recipient_username {
+                    return Err(OpError::ValidationFailed {
+                        reason: "Cannot share with yourself".into(),
+                    });
+                }
+
+                // Verify caller owns the entry
+                let entry_exists = sqlx::query(
+                    "SELECT 1 FROM filesystem WHERE id = $1 AND owner_username = $2 AND deleted_at IS NULL"
+                )
+                .bind(filesystem_id)
+                .bind(&username)
+                .fetch_optional(&self.pool)
+                .await?;
+
+                if entry_exists.is_none() {
+                    return Err(OpError::EntityNotFound { reason: "Entry not found" });
+                }
+
+                // Verify recipient exists
+                let recipient_exists = sqlx::query("SELECT 1 FROM users WHERE username = $1")
+                    .bind(&recipient_username)
+                    .fetch_optional(&self.pool)
+                    .await?;
+
+                if recipient_exists.is_none() {
+                    return Err(OpError::EntityNotFound { reason: "User not found" });
+                }
+
+                // Validate access_level
+                if !["viewer", "editor"].contains(&access_level.as_str()) {
+                    return Err(OpError::ValidationFailed {
+                        reason: "Invalid access level".into(),
+                    });
+                }
+
+                let res = sqlx::query(
+                    "INSERT INTO share_requests (filesystem_id, sender_username, recipient_username, access_level)
+                     VALUES ($1, $2, $3, $4::access_level)
+                     ON CONFLICT (filesystem_id, recipient_username) DO NOTHING"
+                )
+                .bind(filesystem_id)
+                .bind(&username)
+                .bind(&recipient_username)
+                .bind(&access_level)
+                .execute(&self.pool)
+                .await?;
+
+                if res.rows_affected() == 0 {
+                    return Err(OpError::EntityConflict {
+                        reason: "A share request already exists for this item and user",
+                    });
+                }
+
+                Ok(OpSuccess::ShareRequestSent)
+            }
+
+            OpArgs::CancelShareRequest { id } => {
+                let Some(username) = username else {
+                    return Err(OpError::UserNotLoggedIn);
+                };
+
+                let res = sqlx::query(
+                    "DELETE FROM share_requests WHERE id = $1 AND sender_username = $2"
+                )
+                .bind(id)
+                .bind(&username)
+                .execute(&self.pool)
+                .await?;
+
+                if res.rows_affected() == 0 {
+                    return Err(OpError::EntityNotFound { reason: "Share request not found" });
+                }
+
+                Ok(OpSuccess::ShareRequestCancelled)
+            }
+
+            OpArgs::AcceptShareRequest { id } => {
+                let Some(username) = username else {
+                    return Err(OpError::UserNotLoggedIn);
+                };
+
+                let mut tx = self.pool.begin().await?;
+
+                // Fetch and delete the request (must be addressed to caller)
+                let row = sqlx::query(
+                    "DELETE FROM share_requests WHERE id = $1 AND recipient_username = $2
+                     RETURNING filesystem_id, sender_username, access_level::text"
+                )
+                .bind(id)
+                .bind(&username)
+                .fetch_optional(&mut *tx)
+                .await?;
+
+                let Some(row) = row else {
+                    return Err(OpError::EntityNotFound { reason: "Share request not found" });
+                };
+
+                let filesystem_id: Uuid = row.get("filesystem_id");
+                let sender: String = row.get("sender_username");
+                let access_level: String = row.get("access_level");
+
+                // Insert permission
+                sqlx::query(
+                    "INSERT INTO permissions (filesystem_id, grantee_username, access_level, granted_by)
+                     VALUES ($1, $2, $3::access_level, $4)
+                     ON CONFLICT (filesystem_id, grantee_username) DO UPDATE SET access_level = $3::access_level"
+                )
+                .bind(filesystem_id)
+                .bind(&username)
+                .bind(&access_level)
+                .bind(&sender)
+                .execute(&mut *tx)
+                .await?;
+
+                tx.commit().await?;
+                Ok(OpSuccess::ShareRequestAccepted)
+            }
+
+            OpArgs::DeclineShareRequest { id } => {
+                let Some(username) = username else {
+                    return Err(OpError::UserNotLoggedIn);
+                };
+
+                let res = sqlx::query(
+                    "DELETE FROM share_requests WHERE id = $1 AND recipient_username = $2"
+                )
+                .bind(id)
+                .bind(&username)
+                .execute(&self.pool)
+                .await?;
+
+                if res.rows_affected() == 0 {
+                    return Err(OpError::EntityNotFound { reason: "Share request not found" });
+                }
+
+                Ok(OpSuccess::ShareRequestDeclined)
+            }
+
+            OpArgs::ListPendingRequests => {
+                let Some(username) = username else {
+                    return Err(OpError::UserNotLoggedIn);
+                };
+
+                let rows: Vec<ShareRequestRow> = sqlx::query_as(
+                    "SELECT sr.id, sr.filesystem_id, fs.name AS entry_name, fs.type::text AS entry_type,
+                            sr.sender_username, sr.recipient_username, sr.access_level::text AS access_level,
+                            sr.created_at, f.s3_fileid
+                     FROM share_requests sr
+                     JOIN filesystem fs ON sr.filesystem_id = fs.id
+                     LEFT JOIN files f ON fs.file_id = f.id
+                     WHERE sr.recipient_username = $1 AND fs.deleted_at IS NULL
+                     ORDER BY sr.created_at DESC"
+                )
+                .bind(&username)
+                .fetch_all(&self.pool)
+                .await?;
+
+                let mut requests = Vec::with_capacity(rows.len());
+                for r in rows {
+                    let url = match r.s3_fileid {
+                        Some(s3id) => Some(FileUrl::new(self, s3id).await.map_err(OpError::Generic)?),
+                        None => None,
+                    };
+                    requests.push(ShareRequestEntry {
+                        id: r.id, filesystem_id: r.filesystem_id,
+                        entry_name: r.entry_name, entry_type: r.entry_type,
+                        sender_username: r.sender_username, recipient_username: r.recipient_username,
+                        access_level: r.access_level, created_at: r.created_at, url,
+                    });
+                }
+
+                Ok(OpSuccess::PendingRequests { requests })
+            }
+
+            OpArgs::ListSentRequests => {
+                let Some(username) = username else {
+                    return Err(OpError::UserNotLoggedIn);
+                };
+
+                let rows: Vec<ShareRequestRow> = sqlx::query_as(
+                    "SELECT sr.id, sr.filesystem_id, fs.name AS entry_name, fs.type::text AS entry_type,
+                            sr.sender_username, sr.recipient_username, sr.access_level::text AS access_level,
+                            sr.created_at, f.s3_fileid
+                     FROM share_requests sr
+                     JOIN filesystem fs ON sr.filesystem_id = fs.id
+                     LEFT JOIN files f ON fs.file_id = f.id
+                     WHERE sr.sender_username = $1 AND fs.deleted_at IS NULL
+                     ORDER BY sr.created_at DESC"
+                )
+                .bind(&username)
+                .fetch_all(&self.pool)
+                .await?;
+
+                let mut requests = Vec::with_capacity(rows.len());
+                for r in rows {
+                    let url = match r.s3_fileid {
+                        Some(s3id) => Some(FileUrl::new(self, s3id).await.map_err(OpError::Generic)?),
+                        None => None,
+                    };
+                    requests.push(ShareRequestEntry {
+                        id: r.id, filesystem_id: r.filesystem_id,
+                        entry_name: r.entry_name, entry_type: r.entry_type,
+                        sender_username: r.sender_username, recipient_username: r.recipient_username,
+                        access_level: r.access_level, created_at: r.created_at, url,
+                    });
+                }
+
+                Ok(OpSuccess::SentRequests { requests })
+            }
+
+            OpArgs::RevokePermission { id } => {
+                let Some(username) = username else {
+                    return Err(OpError::UserNotLoggedIn);
+                };
+
+                let res = sqlx::query(
+                    "DELETE FROM permissions WHERE id = $1 AND granted_by = $2"
+                )
+                .bind(id)
+                .bind(&username)
+                .execute(&self.pool)
+                .await?;
+
+                if res.rows_affected() == 0 {
+                    return Err(OpError::EntityNotFound { reason: "Permission not found" });
+                }
+
+                Ok(OpSuccess::PermissionRevoked)
+            }
+
+            OpArgs::ListMyGrants => {
+                let Some(username) = username else {
+                    return Err(OpError::UserNotLoggedIn);
+                };
+
+                let rows: Vec<PermissionRow> = sqlx::query_as(
+                    "SELECT p.id, p.filesystem_id, fs.name AS entry_name, fs.type::text AS entry_type,
+                            p.grantee_username, p.granted_by, p.access_level::text AS access_level,
+                            p.created_at, f.s3_fileid
+                     FROM permissions p
+                     JOIN filesystem fs ON p.filesystem_id = fs.id
+                     LEFT JOIN files f ON fs.file_id = f.id
+                     WHERE p.granted_by = $1 AND fs.deleted_at IS NULL
+                     ORDER BY p.created_at DESC"
+                )
+                .bind(&username)
+                .fetch_all(&self.pool)
+                .await?;
+
+                let mut grants = Vec::with_capacity(rows.len());
+                for r in rows {
+                    let url = match r.s3_fileid {
+                        Some(s3id) => Some(FileUrl::new(self, s3id).await.map_err(OpError::Generic)?),
+                        None => None,
+                    };
+                    grants.push(PermissionEntry {
+                        id: r.id, filesystem_id: r.filesystem_id,
+                        entry_name: r.entry_name, entry_type: r.entry_type,
+                        grantee_username: r.grantee_username, granted_by: r.granted_by,
+                        access_level: r.access_level, created_at: r.created_at, url,
+                    });
+                }
+
+                Ok(OpSuccess::MyGrants { grants })
+            }
+
+            OpArgs::ListSharedWithMe => {
+                let Some(username) = username else {
+                    return Err(OpError::UserNotLoggedIn);
+                };
+
+                let rows: Vec<PermissionRow> = sqlx::query_as(
+                    "SELECT p.id, p.filesystem_id, fs.name AS entry_name, fs.type::text AS entry_type,
+                            p.grantee_username, p.granted_by, p.access_level::text AS access_level,
+                            p.created_at, f.s3_fileid
+                     FROM permissions p
+                     JOIN filesystem fs ON p.filesystem_id = fs.id
+                     LEFT JOIN files f ON fs.file_id = f.id
+                     WHERE p.grantee_username = $1 AND fs.deleted_at IS NULL
+                     ORDER BY p.created_at DESC"
+                )
+                .bind(&username)
+                .fetch_all(&self.pool)
+                .await?;
+
+                let mut items = Vec::with_capacity(rows.len());
+                for r in rows {
+                    let url = match r.s3_fileid {
+                        Some(s3id) => Some(FileUrl::new(self, s3id).await.map_err(OpError::Generic)?),
+                        None => None,
+                    };
+                    items.push(PermissionEntry {
+                        id: r.id, filesystem_id: r.filesystem_id,
+                        entry_name: r.entry_name, entry_type: r.entry_type,
+                        grantee_username: r.grantee_username, granted_by: r.granted_by,
+                        access_level: r.access_level, created_at: r.created_at, url,
+                    });
+                }
+
+                Ok(OpSuccess::SharedWithMe { items })
+            }
+
+            OpArgs::ListSharedFolder { permission_filesystem_id, parent_id } => {
+                let Some(username) = username else {
+                    return Err(OpError::UserNotLoggedIn);
+                };
+
+                // Verify permission exists and get the shared entry's path
+                let perm_row = sqlx::query(
+                    "SELECT fs.path::text FROM permissions p
+                     JOIN filesystem fs ON p.filesystem_id = fs.id
+                     WHERE p.filesystem_id = $1 AND p.grantee_username = $2 AND fs.deleted_at IS NULL"
+                )
+                .bind(permission_filesystem_id)
+                .bind(&username)
+                .fetch_optional(&self.pool)
+                .await?;
+
+                let Some(perm_row) = perm_row else {
+                    return Err(OpError::Unauthorized { reason: "No permission for this item".into() });
+                };
+
+                let shared_path: String = perm_row.get("path");
+
+                // The parent to list: if None, use the shared folder itself
+                let listing_parent = parent_id.unwrap_or(permission_filesystem_id);
+
+                let rows: Vec<Folder> = sqlx::query_as(
+                    "SELECT fs.id, fs.name FROM filesystem fs
+                     WHERE fs.parent_id = $1 AND fs.type = 'folder' AND fs.deleted_at IS NULL
+                       AND fs.path <@ $2::ltree
+                     ORDER BY fs.sort_order"
+                )
+                .bind(listing_parent)
+                .bind(&shared_path)
+                .fetch_all(&self.pool)
+                .await?;
+
+                Ok(OpSuccess::SharedFolders { folders: rows })
+            }
+
+            OpArgs::ListSharedFiles { permission_filesystem_id, parent_id } => {
+                let Some(username) = username else {
+                    return Err(OpError::UserNotLoggedIn);
+                };
+
+                // Verify permission exists and get the shared entry's path
+                let perm_row = sqlx::query(
+                    "SELECT fs.path::text FROM permissions p
+                     JOIN filesystem fs ON p.filesystem_id = fs.id
+                     WHERE p.filesystem_id = $1 AND p.grantee_username = $2 AND fs.deleted_at IS NULL"
+                )
+                .bind(permission_filesystem_id)
+                .bind(&username)
+                .fetch_optional(&self.pool)
+                .await?;
+
+                let Some(perm_row) = perm_row else {
+                    return Err(OpError::Unauthorized { reason: "No permission for this item".into() });
+                };
+
+                let shared_path: String = perm_row.get("path");
+
+                let listing_parent = parent_id.unwrap_or(permission_filesystem_id);
+
+                let rows: Vec<FileRow> = sqlx::query_as(
+                    "SELECT fs.id, fs.name, f.size_bytes, f.mime_type, f.s3_fileid
+                     FROM filesystem fs
+                     JOIN files f ON fs.file_id = f.id
+                     WHERE fs.parent_id = $1 AND fs.type = 'file_link' AND fs.deleted_at IS NULL
+                       AND fs.path <@ $2::ltree
+                     ORDER BY fs.sort_order"
+                )
+                .bind(listing_parent)
+                .bind(&shared_path)
+                .fetch_all(&self.pool)
+                .await?;
+
+                let mut files = Vec::with_capacity(rows.len());
+                for row in rows {
+                    let furl = FileUrl::new(self, row.s3_fileid).await.map_err(OpError::Generic)?;
+                    files.push(FileEntry {
+                        id: row.id, name: row.name, mime_type: row.mime_type,
+                        size_bytes: row.size_bytes, url: furl,
+                    });
+                }
+
+                Ok(OpSuccess::SharedFiles { files })
+            }
+
+            OpArgs::GetSharedFile { id } => {
+                let Some(username) = username else {
+                    return Err(OpError::UserNotLoggedIn);
+                };
+
+                let row = sqlx::query(
+                    "SELECT f.s3_fileid, f.mime_type
+                     FROM filesystem fs
+                     JOIN files f ON fs.file_id = f.id
+                     WHERE fs.id = $1 AND fs.type = 'file_link' AND fs.deleted_at IS NULL
+                       AND EXISTS (
+                           SELECT 1 FROM permissions p
+                           JOIN filesystem fs_shared ON p.filesystem_id = fs_shared.id
+                           WHERE p.grantee_username = $2
+                             AND fs_shared.deleted_at IS NULL
+                             AND fs.path <@ fs_shared.path
+                       )"
+                )
+                .bind(id)
+                .bind(&username)
+                .fetch_optional(&self.pool)
+                .await?;
+
+                let Some(row) = row else {
+                    return Err(OpError::EntityNotFound { reason: "File not found or no permission" });
+                };
+
+                let s3_fileid: String = row.get("s3_fileid");
+                let mime_type: String = row.get("mime_type");
+
+                let obj = self.s3
+                    .get_object()
+                    .bucket(&self.bucket)
+                    .key(s3_fileid)
+                    .send()
+                    .await
+                    .map_err(|e| OpError::Generic(format!("S3 error: {e:?}").into()))?;
+
+                let data = obj.body.collect().await
+                    .map_err(|e| OpError::Generic(format!("S3 error: {e:?}").into()))?;
+
+                Ok(OpSuccess::FileData {
+                    data: data.into_bytes().to_vec(),
+                    mime_type,
+                })
+            }
+
+            OpArgs::CopySharedFile { filesystem_id, parent_id } => {
+                let Some(username) = username else {
+                    return Err(OpError::UserNotLoggedIn);
+                };
+
+                // Verify the file is shared with the caller
+                let row = sqlx::query(
+                    "SELECT fs.name, f.s3_fileid, f.size_bytes, f.mime_type
+                     FROM filesystem fs
+                     JOIN files f ON fs.file_id = f.id
+                     WHERE fs.id = $1 AND fs.type = 'file_link' AND fs.deleted_at IS NULL
+                       AND EXISTS (
+                           SELECT 1 FROM permissions p
+                           JOIN filesystem fs_shared ON p.filesystem_id = fs_shared.id
+                           WHERE p.grantee_username = $2
+                             AND fs_shared.deleted_at IS NULL
+                             AND fs.path <@ fs_shared.path
+                       )"
+                )
+                .bind(filesystem_id)
+                .bind(&username)
+                .fetch_optional(&self.pool)
+                .await?;
+
+                let Some(row) = row else {
+                    return Err(OpError::EntityNotFound { reason: "File not found or no permission" });
+                };
+
+                let name: String = row.get("name");
+                let s3_fileid: String = row.get("s3_fileid");
+                let size_bytes: i64 = row.get("size_bytes");
+                let mime_type: String = row.get("mime_type");
+
+                // Create a new files row pointing to the same S3 object
+                let mut tx = self.pool.begin().await?;
+
+                let f_row = sqlx::query(
+                    "INSERT INTO files (owner_username, s3_fileid, size_bytes, mime_type) VALUES ($1, $2, $3, $4) RETURNING id"
+                )
+                .bind(&username)
+                .bind(&s3_fileid)
+                .bind(size_bytes)
+                .bind(&mime_type)
+                .fetch_one(&mut *tx)
+                .await?;
+
+                let f_id: Uuid = f_row.get("id");
+
+                sqlx::query(
+                    "INSERT INTO filesystem (name, type, owner_username, parent_id, file_id, sort_order)
+                     VALUES ($1, 'file_link', $2, $3, $4,
+                        COALESCE((SELECT MAX(sort_order) FROM filesystem WHERE parent_id IS NOT DISTINCT FROM $3 AND owner_username = $2 AND deleted_at IS NULL), 0) + 1
+                     )"
+                )
+                .bind(&name)
+                .bind(&username)
+                .bind(parent_id)
+                .bind(f_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| {
+                    if let sqlx::Error::Database(ref db_err) = e {
+                        if db_err.is_unique_violation() {
+                            return OpError::EntityConflict {
+                                reason: "A file with that name already exists in the target folder",
+                            };
+                        }
+                    }
+                    OpError::Generic(e.into())
+                })?;
+
+                tx.commit().await?;
+                Ok(OpSuccess::FileCopied)
             }
 
             // ─── Auth ───────────────────────────────────────────────

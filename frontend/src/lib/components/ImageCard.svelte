@@ -1,16 +1,18 @@
 <script lang="ts">
 	import ContextMenu from './ContextMenu.svelte';
 	import RenameModal from './RenameModal.svelte';
+	import ShareModal from './ShareModal.svelte';
 	import ImageViewer from './ImageViewer.svelte';
 	import { fetchFiles } from '$lib/stores/files';
 
-	let { name, id, url } = $props<{ name: string; id: string; url: string }>();
+	let { name, id, url, readonly = false } = $props<{ name: string; id: string; url: string; readonly?: boolean }>();
 	let viewerOpen = $state(false);
 
 	let menuOpen = $state(false);
 	let menuX = $state(0);
 	let menuY = $state(0);
 	let showRename = $state(false);
+	let showShare = $state(false);
 
 	function onContextMenu(e: MouseEvent) {
 		e.preventDefault();
@@ -43,19 +45,26 @@
 		}
 	}
 
-	const menuItems = [
-		{
-			label: 'Rename',
-			icon: 'rename',
-			action: () => (showRename = true)
-		},
-		{
-			label: 'Delete',
-			icon: 'delete',
-			danger: true,
-			action: deleteFile
-		}
-	];
+	const menuItems = $derived(readonly
+		? []
+		: [
+				{
+					label: 'Share',
+					icon: 'share',
+					action: () => (showShare = true)
+				},
+				{
+					label: 'Rename',
+					icon: 'rename',
+					action: () => (showRename = true)
+				},
+				{
+					label: 'Delete',
+					icon: 'delete',
+					danger: true,
+					action: deleteFile
+				}
+			]);
 </script>
 
 <button
@@ -82,5 +91,7 @@
 <ContextMenu bind:open={menuOpen} x={menuX} y={menuY} items={menuItems} />
 
 <RenameModal bind:open={showRename} title="Rename File" currentName={name} onSubmit={submitRename} />
+
+<ShareModal bind:open={showShare} filesystemId={id} entryName={name} />
 
 <ImageViewer bind:open={viewerOpen} {id} {name} {url} />
