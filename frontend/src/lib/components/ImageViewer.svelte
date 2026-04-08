@@ -162,66 +162,81 @@
 					<span class="text-white/40 text-xs mr-2">{Math.round(scale * 100)}%</span>
 				{/if}
 
-				<!-- Options menu -->
-				<div class="relative">
+				{#if readonly}
+					<!-- Readonly: visible download button with label -->
 					<button
-						onclick={(e) => { e.stopPropagation(); menuOpen = !menuOpen; }}
-						aria-label="Options"
-						class="w-9 h-9 flex items-center justify-center rounded-lg
-						       text-white/60 hover:text-white hover:bg-white/10
+						onclick={(e) => { e.stopPropagation(); download(); }}
+						class="flex items-center gap-2 px-3.5 py-2 rounded-lg
+						       bg-tw-purple/80 hover:bg-tw-pink text-white text-sm font-medium
 						       cursor-pointer transition-colors duration-150"
 					>
-						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5">
-							<circle cx="5" cy="12" r="2" />
-							<circle cx="12" cy="12" r="2" />
-							<circle cx="19" cy="12" r="2" />
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4">
+							<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+							<polyline points="7 10 12 15 17 10" />
+							<line x1="12" y1="15" x2="12" y2="3" />
 						</svg>
+						Download
 					</button>
-					{#if menuOpen}
-						<!-- svelte-ignore a11y_no_static_element_interactions -->
-						<div
-							class="absolute right-0 top-11 flex flex-col py-1.5 min-w-[160px]
-							       bg-tw-darkblue/95 backdrop-blur-xl border border-white/10
-							       rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.5)] overflow-hidden"
-							onclick={(e) => e.stopPropagation()}
+				{:else}
+					<!-- Options menu -->
+					<div class="relative">
+						<button
+							onclick={(e) => { e.stopPropagation(); menuOpen = !menuOpen; }}
+							aria-label="Options"
+							class="w-9 h-9 flex items-center justify-center rounded-lg
+							       text-white/60 hover:text-white hover:bg-white/10
+							       cursor-pointer transition-colors duration-150"
 						>
-							<button
-								onclick={download}
-								class="flex items-center gap-2.5 px-3.5 py-2 text-sm text-white/70 hover:text-white hover:bg-white/10 cursor-pointer transition-colors duration-150"
+							<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5">
+								<circle cx="5" cy="12" r="2" />
+								<circle cx="12" cy="12" r="2" />
+								<circle cx="19" cy="12" r="2" />
+							</svg>
+						</button>
+						{#if menuOpen}
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<div
+								class="absolute right-0 top-11 flex flex-col py-1.5 min-w-[160px]
+								       bg-tw-darkblue/95 backdrop-blur-xl border border-white/10
+								       rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.5)] overflow-hidden"
+								onclick={(e) => e.stopPropagation()}
 							>
-								<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4">
-									<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-									<polyline points="7 10 12 15 17 10" />
-									<line x1="12" y1="15" x2="12" y2="3" />
-								</svg>
-								Download
-							</button>
-							{#if !readonly}
-							<button
-								onclick={openRename}
-								class="flex items-center gap-2.5 px-3.5 py-2 text-sm text-white/70 hover:text-white hover:bg-white/10 cursor-pointer transition-colors duration-150"
-							>
-								<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4">
-									<path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-									<path d="m15 5 4 4" />
-								</svg>
-								Rename
-							</button>
-							<button
-								onclick={confirmDelete}
-								class="flex items-center gap-2.5 px-3.5 py-2 text-sm text-red-400 hover:bg-red-400/10 cursor-pointer transition-colors duration-150"
-							>
-								<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4">
-									<path d="M3 6h18" />
-									<path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-									<path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-								</svg>
-								Delete
-							</button>
-							{/if}
-						</div>
-					{/if}
-				</div>
+								<button
+									onclick={download}
+									class="flex items-center gap-2.5 px-3.5 py-2 text-sm text-white/70 hover:text-white hover:bg-white/10 cursor-pointer transition-colors duration-150"
+								>
+									<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4">
+										<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+										<polyline points="7 10 12 15 17 10" />
+										<line x1="12" y1="15" x2="12" y2="3" />
+									</svg>
+									Download
+								</button>
+								<button
+									onclick={openRename}
+									class="flex items-center gap-2.5 px-3.5 py-2 text-sm text-white/70 hover:text-white hover:bg-white/10 cursor-pointer transition-colors duration-150"
+								>
+									<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4">
+										<path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+										<path d="m15 5 4 4" />
+									</svg>
+									Rename
+								</button>
+								<button
+									onclick={confirmDelete}
+									class="flex items-center gap-2.5 px-3.5 py-2 text-sm text-red-400 hover:bg-red-400/10 cursor-pointer transition-colors duration-150"
+								>
+									<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4">
+										<path d="M3 6h18" />
+										<path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+										<path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+									</svg>
+									Delete
+								</button>
+							</div>
+						{/if}
+					</div>
+				{/if}
 
 				<!-- Close button -->
 				<button

@@ -10,6 +10,7 @@ use crate::ops::{OpError, OpSuccess};
 pub mod auth;
 pub mod filesystem;
 pub mod sharing;
+pub mod ws;
 
 impl IntoResponse for OpSuccess {
     fn into_response(self) -> axum::response::Response {

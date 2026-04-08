@@ -45,8 +45,27 @@
 		}
 	}
 
+	async function downloadFile() {
+		const res = await fetch(url, { credentials: 'include' });
+		if (!res.ok) return;
+		const blob = await res.blob();
+		const a = document.createElement('a');
+		a.href = URL.createObjectURL(blob);
+		a.download = name;
+		document.body.appendChild(a);
+		a.click();
+		a.remove();
+		URL.revokeObjectURL(a.href);
+	}
+
 	const menuItems = $derived(readonly
-		? []
+		? [
+				{
+					label: 'Download',
+					icon: 'download',
+					action: downloadFile
+				}
+			]
 		: [
 				{
 					label: 'Share',

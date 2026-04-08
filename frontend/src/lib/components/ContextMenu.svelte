@@ -39,7 +39,18 @@
 						? 'text-red-400 hover:bg-red-400/10'
 						: 'text-white/70 hover:text-white hover:bg-white/10'}"
 				>
-					{#if item.icon === 'share'}
+					{#if item.icon === 'folder-open'}
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4">
+							<path d="M2 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2z" />
+							<path d="M2 13h20" />
+						</svg>
+					{:else if item.icon === 'download'}
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4">
+							<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+							<polyline points="7 10 12 15 17 10" />
+							<line x1="12" y1="15" x2="12" y2="3" />
+						</svg>
+					{:else if item.icon === 'share'}
 						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4">
 							<circle cx="18" cy="5" r="3" />
 							<circle cx="6" cy="12" r="3" />

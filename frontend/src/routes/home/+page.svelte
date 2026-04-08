@@ -3,7 +3,7 @@
 	import FolderCard from '$lib/components/FolderCard.svelte';
 	import ImageCard from '$lib/components/ImageCard.svelte';
 	import FileGrid from '$lib/components/FileGrid.svelte';
-	import { folders, fetchFolders, breadcrumbs, navigateToBreadcrumb } from '$lib/stores/folders';
+	import { folders, fetchFolders, breadcrumbs, navigateToBreadcrumb, resetToRoot } from '$lib/stores/folders';
 	import { files, fetchFiles } from '$lib/stores/files';
 
 	let loading = $state(true);
@@ -22,6 +22,7 @@
 	let offsetY = 0;
 
 	onMount(async () => {
+		resetToRoot();
 		await Promise.all([fetchFolders(), fetchFiles()]);
 		loading = false;
 	});

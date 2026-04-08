@@ -1,6 +1,9 @@
 pub mod config;
+pub mod notify;
 pub mod ops;
 pub mod routes;
+
+use std::sync::Arc;
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
@@ -9,6 +12,7 @@ pub struct AppData {
     pub pool: sqlx::PgPool,
     pub s3: aws_sdk_s3::Client,
     pub bucket: String,
+    pub notify: Arc<notify::NotifyHub>,
 }
 
 impl AppData {
@@ -37,6 +41,6 @@ impl AppData {
         let s3 = aws_sdk_s3::Client::from_conf(s3_config);
         let bucket = cfg.object_storage.bucket.clone().unwrap();
 
-        Ok(Self { pool, s3, bucket })
+        Ok(Self { pool, s3, bucket, notify: Arc::new(notify::NotifyHub::new()) })
     }
 }

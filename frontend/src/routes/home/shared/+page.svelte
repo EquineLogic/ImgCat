@@ -89,10 +89,18 @@
 		browseStack = [];
 	}
 
+	let copyStatus: Record<string, string> = $state({});
+
 	async function handleCopy(fsId: string) {
+		copyStatus[fsId] = 'Copying...';
 		try {
 			await copySharedFile(fsId);
-		} catch {}
+			copyStatus[fsId] = 'Copied!';
+			setTimeout(() => { copyStatus[fsId] = ''; }, 2000);
+		} catch (e: any) {
+			copyStatus[fsId] = 'Failed';
+			setTimeout(() => { copyStatus[fsId] = ''; }, 2000);
+		}
 	}
 </script>
 
@@ -205,7 +213,17 @@
 				{#if sharedFiles.length > 0}
 					<div class="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-4">
 						{#each sharedFiles as item}
-							<ImageCard name={item.entry_name} id={item.filesystem_id} url={item.url ?? ''} readonly />
+							<div class="relative group">
+								<ImageCard name={item.entry_name} id={item.filesystem_id} url={item.url ?? ''} readonly />
+								<button
+									onclick={(e) => { e.stopPropagation(); handleCopy(item.filesystem_id); }}
+									class="absolute top-2 right-2 z-10 px-2 py-1 rounded-lg text-[10px] font-semibold
+									       bg-tw-purple/80 hover:bg-tw-pink text-white
+									       opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+								>
+									{copyStatus[item.filesystem_id] || 'Copy to Library'}
+								</button>
+							</div>
 						{/each}
 					</div>
 				{/if}
@@ -240,11 +258,11 @@
 		<ImageCard name={file.name} id={file.id} url={file.url} readonly />
 		<button
 			onclick={(e) => { e.stopPropagation(); handleCopy(file.id); }}
-			class="absolute top-2 right-2 px-2 py-1 rounded-lg text-[10px] font-semibold
+			class="absolute top-2 right-2 z-10 px-2 py-1 rounded-lg text-[10px] font-semibold
 			       bg-tw-purple/80 hover:bg-tw-pink text-white
 			       opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
 		>
-			Copy to Library
+			{copyStatus[file.id] || 'Copy to Library'}
 		</button>
 	</div>
 {/snippet}

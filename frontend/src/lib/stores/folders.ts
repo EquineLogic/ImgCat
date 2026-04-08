@@ -35,6 +35,12 @@ export async function fetchFolders(parentId?: string | null) {
 	}
 }
 
+export function resetToRoot() {
+	currentFolderId.set(null);
+	breadcrumbs.set([{ id: null, name: 'My Library' }]);
+	saveState();
+}
+
 export function openFolder(id: string, name: string) {
 	currentFolderId.set(id);
 	breadcrumbs.update((b) => [...b, { id, name }]);
