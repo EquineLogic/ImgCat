@@ -96,7 +96,7 @@ pub enum OpSuccess {
 
     // Auth
     CreatedSession { username: String, token: String, token_type: SessionType },
-    SignedOut,
+    DeletedSession { id: Uuid, token_type: SessionType },
     UsernameChanged,
     PasswordChanged,
     TrashRetention { days: i32 },
@@ -1274,7 +1274,7 @@ impl AppData {
                     });
                 }
 
-                Ok(OpSuccess::SignedOut)
+                Ok(OpSuccess::DeletedSession { id, token_type: SessionType::Login }) // TODO: Change this if/when we add support for diff session types
             }
 
             OpArgs::ChangeUsername { new_username } => {

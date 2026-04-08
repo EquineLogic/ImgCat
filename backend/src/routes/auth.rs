@@ -3,7 +3,6 @@ use crate::ops::models::auth::{
     ChangePassword, ChangeUsername, LoggedInUser, RegisterRequest, SetTrashRetention, SignInRequest,
 };
 use crate::ops::{OpArgs, OpError, OpSuccess};
-use axum::http::{HeaderValue, StatusCode, header::SET_COOKIE};
 use axum::{Json, extract::State, response::IntoResponse};
 
 pub async fn register(
@@ -51,17 +50,8 @@ pub async fn check_auth(
 pub async fn sign_out(
     State(app): State<AppData>,
     user: LoggedInUser,
-) -> Result<impl IntoResponse, OpError> {
-    app.exec_op(OpArgs::DeleteSession { id: user.session_id }, Some(user.user_id)).await?;
-
-    let cookie = "session_token=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0";
-    let mut response = (StatusCode::OK, "Signed out successfully").into_response();
-    response.headers_mut().insert(
-        SET_COOKIE,
-        HeaderValue::from_str(cookie)
-            .map_err(|e| OpError::Generic(format!("Failed to create cookie: {e}").into()))?,
-    );
-    Ok(response)
+) -> Result<OpSuccess, OpError> {
+    app.exec_op(OpArgs::DeleteSession { id: user.session_id }, Some(user.user_id)).await
 }
 
 pub async fn change_username(

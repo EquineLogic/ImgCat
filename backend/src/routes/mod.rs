@@ -60,7 +60,19 @@ impl IntoResponse for OpSuccess {
                 }
                 resp
             }
-            Self::SignedOut => (StatusCode::OK, "Signed out successfully").into_response(),
+            Self::DeletedSession { token_type, .. } => {
+                let mut resp = (StatusCode::OK, "Signed out successfully").into_response();
+                if token_type == SessionType::Login {
+                    let cookie = "session_token=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0";
+                    if let Ok(hv) = HeaderValue::from_str(&cookie) {
+                        resp.headers_mut().insert(
+                            SET_COOKIE,
+                            hv,
+                        );
+                    }
+                }
+                resp
+            },
             Self::UsernameChanged => StatusCode::OK.into_response(),
             Self::PasswordChanged => StatusCode::OK.into_response(),
             Self::TrashRetention { days } => {
