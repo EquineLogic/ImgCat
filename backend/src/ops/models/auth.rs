@@ -6,7 +6,6 @@ use chrono::Utc;
 use rand::distr::Alphanumeric;
 use rand::{distr::SampleString, rng};
 use serde::{Deserialize, Serialize};
-use sqlx::Row;
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -83,6 +82,7 @@ impl Session {
 pub struct LoggedInUser {
     pub user_id: Uuid,
     pub username: String,
+    pub session_id: Uuid
 }
 
 impl FromRequestParts<AppData> for LoggedInUser {
@@ -106,23 +106,28 @@ impl FromRequestParts<AppData> for LoggedInUser {
             .map(|c| c.value())
             .ok_or((StatusCode::UNAUTHORIZED, "No session token".to_string()))?;
 
-        let row = sqlx::query(
-                "SELECT u.id, u.username FROM sessions s JOIN users u ON s.user_id = u.id WHERE s.token = $1 AND s.expires_at > NOW()"
+        #[derive(sqlx::FromRow)]
+        struct Row {
+            id: Uuid,
+            username: String,
+            session_id: Uuid
+        }
+
+        let row: Row = sqlx::query_as(
+                "SELECT u.id, u.username, s.id AS session_id FROM sessions s JOIN users u ON s.user_id = u.id WHERE s.token = $1 AND s.expires_at > NOW()"
             )
             .bind(&session_token)
-            .fetch_one(&state.pool)
+            .fetch_optional(&state.pool)
             .await
-            .map_err(|_| {
+            .map_err(|e| {
                 (
-                    StatusCode::UNAUTHORIZED,
-                    "Invalid or expired session token".to_string(),
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    e.to_string(),
                 )
-            })?;
+            })?
+            .ok_or_else(|| (StatusCode::UNAUTHORIZED, "Invalid authorization provided".to_string()))?;
 
-        let user_id: Uuid = row.get("id");
-        let username: String = row.get("username");
-
-        Ok(LoggedInUser { user_id, username })
+        Ok(LoggedInUser { user_id: row.id, username: row.username, session_id: row.session_id })
     }
 }
 

@@ -16,7 +16,7 @@ pub async fn register(
 
     app
     .exec_op(
-        OpArgs::Register {
+        OpArgs::CreateUser {
             username: payload.username,
             password: payload.password,
             name: payload.name,
@@ -32,7 +32,7 @@ pub async fn sign_in(
 ) -> Result<impl IntoResponse, OpError> {
     app
         .exec_op(
-            OpArgs::SignIn {
+            OpArgs::CreateLoginSession {
                 username: payload.username,
                 password: payload.password,
             },
@@ -52,7 +52,7 @@ pub async fn sign_out(
     State(app): State<AppData>,
     user: LoggedInUser,
 ) -> Result<impl IntoResponse, OpError> {
-    app.exec_op(OpArgs::SignOut, Some(user.user_id)).await?;
+    app.exec_op(OpArgs::DeleteSession { id: user.session_id }, Some(user.user_id)).await?;
 
     let cookie = "session_token=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0";
     let mut response = (StatusCode::OK, "Signed out successfully").into_response();

@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 // ── Inputs ──────────────────────────────────────────────────────────────
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "op")]
 pub enum OpArgs {
     // Filesystem
@@ -48,9 +48,9 @@ pub enum OpArgs {
     CopySharedFile { filesystem_id: Uuid, parent_id: Option<Uuid> },
 
     // Auth
-    Register { username: String, password: String, name: String },
-    SignIn { username: String, password: String },
-    SignOut,
+    CreateUser { username: String, password: String, name: String },
+    CreateLoginSession { username: String, password: String },
+    DeleteSession { id: Uuid },
     ChangeUsername { new_username: String },
     ChangePassword { curr_password: String, new_password: String },
     GetTrashRetention,
@@ -1187,7 +1187,7 @@ impl AppData {
 
             // ─── Auth ───────────────────────────────────────────────
 
-            OpArgs::Register { username, password, name } => {
+            OpArgs::CreateUser { username, password, name } => {
                 let hashed_password = salt_and_hash_password(&password);
 
                 let mut tx = self.pool.begin().await?;
@@ -1221,7 +1221,7 @@ impl AppData {
                 })
             }
 
-            OpArgs::SignIn { username, password } => {
+            OpArgs::CreateLoginSession { username, password } => {
                 let mut tx = self.pool.begin().await?;
 
                 let row = sqlx::query("SELECT id, password FROM users WHERE username = $1")
@@ -1257,13 +1257,14 @@ impl AppData {
                 })
             }
 
-            OpArgs::SignOut => {
+            OpArgs::DeleteSession { id } => {
                 let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
-                let row = sqlx::query("DELETE FROM sessions WHERE user_id = $1")
+                let row = sqlx::query("DELETE FROM sessions WHERE user_id = $1 AND id = $2")
                     .bind(uid)
+                    .bind(id)
                     .execute(&self.pool)
                     .await?;
 
