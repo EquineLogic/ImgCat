@@ -105,32 +105,11 @@ pub enum OpArgs {
     },
 
     // Auth
-<<<<<<< HEAD
     CreateUser { username: String, password: String, name: String },
     CreateLoginSession { username: String, password: String },
     DeleteSession { id: Uuid },
     ChangeUsername { new_username: String },
     ChangePassword { curr_password: String, new_password: String },
-=======
-    Register {
-        username: String,
-        password: String,
-        name: String,
-    },
-    SignIn {
-        username: String,
-        password: String,
-    },
-    CheckAuth,
-    SignOut,
-    ChangeUsername {
-        new_username: String,
-    },
-    ChangePassword {
-        curr_password: String,
-        new_password: String,
-    },
->>>>>>> ce8a9d0 (websockets and instant messaging?)
     GetTrashRetention,
     SetTrashRetention {
         days: i32,
@@ -196,19 +175,8 @@ pub enum OpSuccess {
     FileCopied,
 
     // Auth
-<<<<<<< HEAD
     CreatedSession { username: String, token: String, token_type: SessionType },
     DeletedSession { id: Uuid, token_type: SessionType },
-=======
-    LoggedIn {
-        username: String,
-        token: String,
-    },
-    AuthChecked {
-        username: String,
-    },
-    SignedOut,
->>>>>>> ce8a9d0 (websockets and instant messaging?)
     UsernameChanged,
     PasswordChanged,
     TrashRetention {
@@ -1430,16 +1398,8 @@ impl AppData {
             }
 
             // ─── Auth ───────────────────────────────────────────────
-<<<<<<< HEAD
 
             OpArgs::CreateUser { username, password, name } => {
-=======
-            OpArgs::Register {
-                username,
-                password,
-                name,
-            } => {
->>>>>>> ce8a9d0 (websockets and instant messaging?)
                 let hashed_password = salt_and_hash_password(&password);
 
                 let mut tx = self.pool.begin().await?;
@@ -1512,23 +1472,7 @@ impl AppData {
                 })
             }
 
-<<<<<<< HEAD
             OpArgs::DeleteSession { id } => {
-=======
-            OpArgs::CheckAuth => {
-                let Some(_uid) = user_id else {
-                    return Err(OpError::UserNotLoggedIn);
-                };
-
-                // username is not passed via user_id, but the route handler has it from LoggedInUser
-                // We return a placeholder; the route handler overrides with the actual username
-                Ok(OpSuccess::AuthChecked {
-                    username: String::new(),
-                })
-            }
-
-            OpArgs::SignOut => {
->>>>>>> ce8a9d0 (websockets and instant messaging?)
                 let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
