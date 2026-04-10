@@ -21,6 +21,7 @@ pub struct Config {
     pub max_db_connections: u32,
     pub postgres_url: String,
     pub object_storage: ObjectStorage,
+    pub port: u16,
 
     #[serde(skip)]
     /// Setup by load() for statistics
