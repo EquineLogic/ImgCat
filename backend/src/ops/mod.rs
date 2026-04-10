@@ -1437,6 +1437,12 @@ impl AppData {
                 password,
                 name,
             } => {
+                if !crate::config::CONFIG.allow_register {
+                    return Err(OpError::EntityConflict {
+                        reason: "Registration is disabled",
+                    });
+                }
+
                 let hashed_password = salt_and_hash_password(&password);
 
                 let mut tx = self.pool.begin().await?;

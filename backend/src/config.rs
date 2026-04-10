@@ -24,6 +24,7 @@ pub struct Config {
     pub object_storage: ObjectStorage,
     pub bind_addr: SocketAddr,
     pub allowed_origins: Vec<String>,
+    pub allow_register: bool,
 
     #[serde(skip)]
     /// Setup by load() for statistics
