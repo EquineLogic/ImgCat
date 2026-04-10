@@ -105,11 +105,25 @@ pub enum OpArgs {
     },
 
     // Auth
-    CreateUser { username: String, password: String, name: String },
-    CreateLoginSession { username: String, password: String },
-    DeleteSession { id: Uuid },
-    ChangeUsername { new_username: String },
-    ChangePassword { curr_password: String, new_password: String },
+    CreateUser {
+        username: String,
+        password: String,
+        name: String,
+    },
+    CreateLoginSession {
+        username: String,
+        password: String,
+    },
+    DeleteSession {
+        id: Uuid,
+    },
+    ChangeUsername {
+        new_username: String,
+    },
+    ChangePassword {
+        curr_password: String,
+        new_password: String,
+    },
     GetTrashRetention,
     SetTrashRetention {
         days: i32,
@@ -175,8 +189,15 @@ pub enum OpSuccess {
     FileCopied,
 
     // Auth
-    CreatedSession { username: String, token: String, token_type: SessionType },
-    DeletedSession { id: Uuid, token_type: SessionType },
+    CreatedSession {
+        username: String,
+        token: String,
+        token_type: SessionType,
+    },
+    DeletedSession {
+        id: Uuid,
+        token_type: SessionType,
+    },
     UsernameChanged,
     PasswordChanged,
     TrashRetention {
@@ -819,13 +840,16 @@ impl AppData {
                     });
                 };
 
-                self.notify.send_to(recipient_id, SharingEvent::NewShareRequest {
-                    request_id,
-                    filesystem_id,
-                    entry_name,
-                    sender_username,
-                    access_level,
-                });
+                self.notify.send_to(
+                    recipient_id,
+                    SharingEvent::NewShareRequest {
+                        request_id,
+                        filesystem_id,
+                        entry_name,
+                        sender_username,
+                        access_level,
+                    },
+                );
 
                 Ok(OpSuccess::ShareRequestSent)
             }
@@ -850,9 +874,10 @@ impl AppData {
                 };
 
                 let recipient_id: Uuid = row.get("recipient_id");
-                self.notify.send_to(recipient_id, SharingEvent::ShareRequestCancelled {
-                    request_id: id,
-                });
+                self.notify.send_to(
+                    recipient_id,
+                    SharingEvent::ShareRequestCancelled { request_id: id },
+                );
 
                 Ok(OpSuccess::ShareRequestCancelled)
             }
@@ -905,11 +930,14 @@ impl AppData {
                         .fetch_one(&self.pool)
                         .await?;
 
-                self.notify.send_to(sender_id, SharingEvent::ShareRequestAccepted {
-                    request_id: id,
-                    filesystem_id,
-                    recipient_username,
-                });
+                self.notify.send_to(
+                    sender_id,
+                    SharingEvent::ShareRequestAccepted {
+                        request_id: id,
+                        filesystem_id,
+                        recipient_username,
+                    },
+                );
 
                 Ok(OpSuccess::ShareRequestAccepted)
             }
@@ -940,10 +968,13 @@ impl AppData {
                         .fetch_one(&self.pool)
                         .await?;
 
-                self.notify.send_to(sender_id, SharingEvent::ShareRequestDeclined {
-                    request_id: id,
-                    recipient_username,
-                });
+                self.notify.send_to(
+                    sender_id,
+                    SharingEvent::ShareRequestDeclined {
+                        request_id: id,
+                        recipient_username,
+                    },
+                );
 
                 Ok(OpSuccess::ShareRequestDeclined)
             }
@@ -1061,10 +1092,13 @@ impl AppData {
 
                 let grantee_id: Uuid = row.get("grantee_id");
                 let filesystem_id: Uuid = row.get("filesystem_id");
-                self.notify.send_to(grantee_id, SharingEvent::PermissionRevoked {
-                    permission_id: id,
-                    filesystem_id,
-                });
+                self.notify.send_to(
+                    grantee_id,
+                    SharingEvent::PermissionRevoked {
+                        permission_id: id,
+                        filesystem_id,
+                    },
+                );
 
                 Ok(OpSuccess::PermissionRevoked)
             }
@@ -1398,8 +1432,11 @@ impl AppData {
             }
 
             // ─── Auth ───────────────────────────────────────────────
-
-            OpArgs::CreateUser { username, password, name } => {
+            OpArgs::CreateUser {
+                username,
+                password,
+                name,
+            } => {
                 let hashed_password = salt_and_hash_password(&password);
 
                 let mut tx = self.pool.begin().await?;
@@ -1430,7 +1467,7 @@ impl AppData {
                 Ok(OpSuccess::CreatedSession {
                     username: session.username,
                     token: session.token,
-                    token_type: SessionType::Login
+                    token_type: SessionType::Login,
                 })
             }
 
@@ -1468,7 +1505,7 @@ impl AppData {
                 Ok(OpSuccess::CreatedSession {
                     username: session.username,
                     token: session.token,
-                    token_type: SessionType::Login
+                    token_type: SessionType::Login,
                 })
             }
 
@@ -1489,7 +1526,10 @@ impl AppData {
                     });
                 }
 
-                Ok(OpSuccess::DeletedSession { id, token_type: SessionType::Login }) // TODO: Change this if/when we add support for diff session types
+                Ok(OpSuccess::DeletedSession {
+                    id,
+                    token_type: SessionType::Login,
+                }) // TODO: Change this if/when we add support for diff session types
             }
 
             OpArgs::ChangeUsername { new_username } => {

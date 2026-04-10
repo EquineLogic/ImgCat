@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fs::File;
+use std::net::SocketAddr;
 use std::sync::LazyLock;
 
 /// Global config object
@@ -21,7 +22,8 @@ pub struct Config {
     pub max_db_connections: u32,
     pub postgres_url: String,
     pub object_storage: ObjectStorage,
-    pub port: u16,
+    pub bind_addr: SocketAddr,
+    pub allowed_origins: Vec<String>,
 
     #[serde(skip)]
     /// Setup by load() for statistics

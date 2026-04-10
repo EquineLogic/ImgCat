@@ -1,4 +1,4 @@
-use backend::{AppData, routes};
+use backend::{AppData, config, routes};
 
 use axum::{
     Router,
@@ -10,6 +10,8 @@ use tower_http::cors::CorsLayer;
 
 #[tokio::main]
 async fn main() {
+    let cfg: &config::Config = &*config::CONFIG;
+
     // setup logging
     env_logger::builder()
         .filter_level(log::LevelFilter::Info)
@@ -19,10 +21,15 @@ async fn main() {
         .await
         .expect("Failed to initialize app data");
 
-    log::info!("Starting server on http://localhost:3000");
+    log::info!("Starting server on {}", cfg.bind_addr);
 
     let cors = CorsLayer::new()
-        .allow_origin("http://localhost:5173".parse::<HeaderValue>().unwrap())
+        .allow_origin(
+            cfg.allowed_origins
+                .iter()
+                .map(|o| HeaderValue::from_str(o).unwrap())
+                .collect::<Vec<_>>(),
+        )
         .allow_methods([Method::POST, Method::GET])
         .allow_credentials(true)
         .allow_headers([header::CONTENT_TYPE]);
@@ -50,13 +57,31 @@ async fn main() {
             post(routes::filesystem::delete_trash_entry),
         )
         // Sharing
-        .route("/send_share_request", post(routes::sharing::send_share_request))
-        .route("/cancel_share_request", post(routes::sharing::cancel_share_request))
-        .route("/accept_share_request", post(routes::sharing::accept_share_request))
-        .route("/decline_share_request", post(routes::sharing::decline_share_request))
-        .route("/pending_requests", get(routes::sharing::list_pending_requests))
+        .route(
+            "/send_share_request",
+            post(routes::sharing::send_share_request),
+        )
+        .route(
+            "/cancel_share_request",
+            post(routes::sharing::cancel_share_request),
+        )
+        .route(
+            "/accept_share_request",
+            post(routes::sharing::accept_share_request),
+        )
+        .route(
+            "/decline_share_request",
+            post(routes::sharing::decline_share_request),
+        )
+        .route(
+            "/pending_requests",
+            get(routes::sharing::list_pending_requests),
+        )
         .route("/sent_requests", get(routes::sharing::list_sent_requests))
-        .route("/revoke_permission", post(routes::sharing::revoke_permission))
+        .route(
+            "/revoke_permission",
+            post(routes::sharing::revoke_permission),
+        )
         .route("/my_grants", get(routes::sharing::list_my_grants))
         .route("/shared_with_me", get(routes::sharing::list_shared_with_me))
         .route("/shared_folder", get(routes::sharing::list_shared_folder))
@@ -74,6 +99,6 @@ async fn main() {
         .with_state(state)
         .layer(cors);
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    let listener = tokio::net::TcpListener::bind(&cfg.bind_addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
