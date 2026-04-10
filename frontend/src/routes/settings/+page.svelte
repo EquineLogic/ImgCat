@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { user } from '$lib/stores/auth';
 	import Modal from '$lib/components/Modal.svelte';
+	import { API_BASE } from '$lib/config';
 
 	let showUsername = $state(false);
 	let newUsername = $state('');
@@ -31,7 +32,7 @@
 		usernameSaving = true;
 		usernameError = '';
 		try {
-			const res = await fetch('http://localhost:3000/change_username', {
+			const res = await fetch(`${API_BASE}/change_username`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				credentials: 'include',
@@ -60,7 +61,7 @@
 		passwordSaving = true;
 		passwordError = '';
 		try {
-			const res = await fetch('http://localhost:3000/change_password', {
+			const res = await fetch(`${API_BASE}/change_password`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				credentials: 'include',

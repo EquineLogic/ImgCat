@@ -1,4 +1,5 @@
 import { pendingRequests, fetchPendingRequests, fetchSharedWithMe, sharedWithMe } from './sharing';
+import { WS_BASE } from '$lib/config';
 
 type SharingEvent =
 	| { event: 'NewShareRequest'; request_id: string; filesystem_id: string; entry_name: string; sender_username: string; access_level: string }
@@ -18,7 +19,7 @@ export function connectWebSocket() {
 		return;
 	}
 
-	ws = new WebSocket('ws://localhost:3000/ws');
+	ws = new WebSocket(`${WS_BASE}/ws`);
 
 	ws.onopen = () => {
 		reconnectDelay = 1000;

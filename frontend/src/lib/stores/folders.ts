@@ -1,5 +1,6 @@
 import { writable, get } from 'svelte/store';
 import { fetchFiles } from './files';
+import { API_BASE } from '$lib/config';
 
 export type Folder = { id: string; name: string };
 export type BreadcrumbItem = { id: string | null; name: string };
@@ -27,8 +28,8 @@ export const breadcrumbs = writable<BreadcrumbItem[]>(saved.breadcrumbs);
 export async function fetchFolders(parentId?: string | null) {
 	const id = parentId !== undefined ? parentId : get(currentFolderId);
 	const url = id
-		? `http://localhost:3000/list_folders?parent_id=${id}`
-		: 'http://localhost:3000/list_folders';
+		? `${API_BASE}/list_folders?parent_id=${id}`
+		: `${API_BASE}/list_folders`;
 	const res = await fetch(url, { credentials: 'include' });
 	if (res.ok) {
 		folders.set(await res.json());

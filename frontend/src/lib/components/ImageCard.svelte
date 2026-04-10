@@ -4,6 +4,7 @@
 	import ShareModal from './ShareModal.svelte';
 	import ImageViewer from './ImageViewer.svelte';
 	import { fetchFiles } from '$lib/stores/files';
+	import { API_BASE } from '$lib/config';
 
 	let { name, id, url, readonly = false } = $props<{ name: string; id: string; url: string; readonly?: boolean }>();
 	let viewerOpen = $state(false);
@@ -22,7 +23,7 @@
 	}
 
 	async function submitRename(newName: string): Promise<string | null> {
-		const res = await fetch(`http://localhost:3000/rename_file`, {
+		const res = await fetch(`${API_BASE}/rename_file`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			credentials: 'include',
@@ -34,7 +35,7 @@
 	}
 
 	async function deleteFile() {
-		const res = await fetch(`http://localhost:3000/delete_file`, {
+		const res = await fetch(`${API_BASE}/delete_file`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			credentials: 'include',

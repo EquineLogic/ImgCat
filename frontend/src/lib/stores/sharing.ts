@@ -1,4 +1,5 @@
 import { writable } from 'svelte/store';
+import { API_BASE } from '$lib/config';
 
 export type ShareRequest = {
 	id: string;
@@ -31,17 +32,17 @@ export const pendingRequests = writable<ShareRequest[]>([]);
 export const sharedWithMe = writable<PermissionEntry[]>([]);
 
 export async function fetchPendingRequests() {
-	const res = await fetch('http://localhost:3000/pending_requests', { credentials: 'include' });
+	const res = await fetch(`${API_BASE}/pending_requests`, { credentials: 'include' });
 	if (res.ok) pendingRequests.set(await res.json());
 }
 
 export async function fetchSharedWithMe() {
-	const res = await fetch('http://localhost:3000/shared_with_me', { credentials: 'include' });
+	const res = await fetch(`${API_BASE}/shared_with_me`, { credentials: 'include' });
 	if (res.ok) sharedWithMe.set(await res.json());
 }
 
 export async function sendShareRequest(filesystemId: string, recipientUsername: string, accessLevel = 'viewer') {
-	const res = await fetch('http://localhost:3000/send_share_request', {
+	const res = await fetch(`${API_BASE}/send_share_request`, {
 		method: 'POST',
 		credentials: 'include',
 		headers: { 'Content-Type': 'application/json' },
@@ -51,7 +52,7 @@ export async function sendShareRequest(filesystemId: string, recipientUsername: 
 }
 
 export async function acceptShareRequest(id: string) {
-	const res = await fetch('http://localhost:3000/accept_share_request', {
+	const res = await fetch(`${API_BASE}/accept_share_request`, {
 		method: 'POST',
 		credentials: 'include',
 		headers: { 'Content-Type': 'application/json' },
@@ -61,7 +62,7 @@ export async function acceptShareRequest(id: string) {
 }
 
 export async function declineShareRequest(id: string) {
-	const res = await fetch('http://localhost:3000/decline_share_request', {
+	const res = await fetch(`${API_BASE}/decline_share_request`, {
 		method: 'POST',
 		credentials: 'include',
 		headers: { 'Content-Type': 'application/json' },
@@ -71,7 +72,7 @@ export async function declineShareRequest(id: string) {
 }
 
 export async function revokePermission(id: string) {
-	const res = await fetch('http://localhost:3000/revoke_permission', {
+	const res = await fetch(`${API_BASE}/revoke_permission`, {
 		method: 'POST',
 		credentials: 'include',
 		headers: { 'Content-Type': 'application/json' },
@@ -81,13 +82,13 @@ export async function revokePermission(id: string) {
 }
 
 export async function fetchMyGrants(): Promise<PermissionEntry[]> {
-	const res = await fetch('http://localhost:3000/my_grants', { credentials: 'include' });
+	const res = await fetch(`${API_BASE}/my_grants`, { credentials: 'include' });
 	if (!res.ok) throw new Error(await res.text());
 	return res.json();
 }
 
 export async function fetchSharedFolder(permissionFilesystemId: string, parentId?: string | null): Promise<Folder[]> {
-	let url = `http://localhost:3000/shared_folder?permission_filesystem_id=${permissionFilesystemId}`;
+	let url = `${API_BASE}/shared_folder?permission_filesystem_id=${permissionFilesystemId}`;
 	if (parentId) url += `&parent_id=${parentId}`;
 	const res = await fetch(url, { credentials: 'include' });
 	if (!res.ok) throw new Error(await res.text());
@@ -95,7 +96,7 @@ export async function fetchSharedFolder(permissionFilesystemId: string, parentId
 }
 
 export async function fetchSharedFiles(permissionFilesystemId: string, parentId?: string | null): Promise<FileEntry[]> {
-	let url = `http://localhost:3000/shared_files?permission_filesystem_id=${permissionFilesystemId}`;
+	let url = `${API_BASE}/shared_files?permission_filesystem_id=${permissionFilesystemId}`;
 	if (parentId) url += `&parent_id=${parentId}`;
 	const res = await fetch(url, { credentials: 'include' });
 	if (!res.ok) throw new Error(await res.text());
@@ -103,7 +104,7 @@ export async function fetchSharedFiles(permissionFilesystemId: string, parentId?
 }
 
 export async function copySharedFile(filesystemId: string, parentId?: string | null) {
-	const res = await fetch('http://localhost:3000/copy_shared_file', {
+	const res = await fetch(`${API_BASE}/copy_shared_file`, {
 		method: 'POST',
 		credentials: 'include',
 		headers: { 'Content-Type': 'application/json' },

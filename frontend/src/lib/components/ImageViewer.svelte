@@ -2,6 +2,7 @@
 	import RenameModal from './RenameModal.svelte';
 	import ConfirmModal from './ConfirmModal.svelte';
 	import { fetchFiles } from '$lib/stores/files';
+	import { API_BASE } from '$lib/config';
 
 	let { open = $bindable(false), id, name, url: fileurl, readonly = false } = $props<{
 		open: boolean;
@@ -112,7 +113,7 @@
 	}
 
 	async function submitRename(newName: string): Promise<string | null> {
-		const res = await fetch('http://localhost:3000/rename_file', {
+		const res = await fetch(`${API_BASE}/rename_file`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			credentials: 'include',
@@ -129,7 +130,7 @@
 	}
 
 	async function submitDelete() {
-		const res = await fetch('http://localhost:3000/delete_file', {
+		const res = await fetch(`${API_BASE}/delete_file`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			credentials: 'include',

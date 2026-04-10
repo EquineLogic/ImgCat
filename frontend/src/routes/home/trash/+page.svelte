@@ -4,6 +4,7 @@
 	import ImageCard from '$lib/components/ImageCard.svelte';
 	import FileGrid from '$lib/components/FileGrid.svelte';
 	import Modal from '$lib/components/Modal.svelte';
+	import { API_BASE } from '$lib/config';
 
 	type TrashEntry = {
 		id: string;
@@ -23,14 +24,14 @@
 
 	async function load() {
 		loading = true;
-		const res = await fetch('http://localhost:3000/list_trash', { credentials: 'include' });
+		const res = await fetch(`${API_BASE}/list_trash`, { credentials: 'include' });
 		if (res.ok) items = await res.json();
 		loading = false;
 	}
 
 	async function restore(id: string) {
 		error = '';
-		const res = await fetch('http://localhost:3000/restore', {
+		const res = await fetch(`${API_BASE}/restore`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			credentials: 'include',
@@ -56,7 +57,7 @@
 		error = '';
 		const id = purgeTarget.id;
 		purgeModalOpen = false;
-		const res = await fetch('http://localhost:3000/delete_trash_entry', {
+		const res = await fetch(`${API_BASE}/delete_trash_entry`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			credentials: 'include',

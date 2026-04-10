@@ -7,6 +7,7 @@
 	import { fetchFiles, files } from '$lib/stores/files';
 	import { pendingRequests, fetchPendingRequests, sendShareRequest } from '$lib/stores/sharing';
 	import { onMount } from 'svelte';
+	import { API_BASE } from '$lib/config';
 
 	let { mode = 'home' }: { mode?: 'home' | 'settings' } = $props();
 
@@ -101,7 +102,7 @@
 
 	async function createFolder() {
 		if (!folderName.trim()) return;
-		const res = await fetch('http://localhost:3000/create_folder', {
+		const res = await fetch(`${API_BASE}/create_folder`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			credentials: 'include',
@@ -140,7 +141,7 @@
 				form.append('file', file);
 				form.append('name', file.name.replace(/\.[^.]+$/, ''));
 				if ($currentFolderId) form.append('parent_id', $currentFolderId);
-				const res = await fetch('http://localhost:3000/upload_file', {
+				const res = await fetch(`${API_BASE}/upload_file`, {
 					method: 'POST',
 					credentials: 'include',
 					body: form
@@ -206,7 +207,7 @@
 	}
 
 	async function handleSignOut() {
-		await fetch('http://localhost:3000/signout', {
+		await fetch(`${API_BASE}/signout`, {
 			method: 'POST',
 			credentials: 'include'
 		});

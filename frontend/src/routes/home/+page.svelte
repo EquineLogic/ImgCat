@@ -5,6 +5,7 @@
 	import FileGrid from '$lib/components/FileGrid.svelte';
 	import { folders, fetchFolders, breadcrumbs, navigateToBreadcrumb, resetToRoot } from '$lib/stores/folders';
 	import { files, fetchFiles } from '$lib/stores/files';
+	import { API_BASE } from '$lib/config';
 
 	let loading = $state(true);
 	let editMode = $state(false);
@@ -165,7 +166,7 @@
 	}
 
 	async function persistOrder(ids: string[]) {
-		await fetch('http://localhost:3000/reorder', {
+		await fetch(`${API_BASE}/reorder`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			credentials: 'include',
@@ -174,7 +175,7 @@
 	}
 
 	async function moveEntry(id: string, parentId: string) {
-		const res = await fetch('http://localhost:3000/move', {
+		const res = await fetch(`${API_BASE}/move`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			credentials: 'include',

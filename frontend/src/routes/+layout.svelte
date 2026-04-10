@@ -5,6 +5,7 @@
 	import { user } from '$lib/stores/auth';
 	import { connectWebSocket, disconnectWebSocket } from '$lib/stores/websocket';
 	import favicon from '$lib/assets/favicon.svg';
+	import { API_BASE } from '$lib/config';
 	import "../app.css";
 
 	let { children } = $props();
@@ -13,7 +14,7 @@
 
 	onMount(async () => {
 		try {
-			const res = await fetch('http://localhost:3000/check_auth', {
+			const res = await fetch(`${API_BASE}/check_auth`, {
 				credentials: 'include'
 			});
 

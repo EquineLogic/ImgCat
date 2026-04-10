@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { API_BASE } from '$lib/config';
 
 	const options = [
 		{ value: 0, label: 'Never (keep trash forever)' },
@@ -21,7 +22,7 @@
 	async function load() {
 		if (isLoaded) return;
 		try {
-			const res = await fetch('http://localhost:3000/trash_retention', {
+			const res = await fetch(`${API_BASE}/trash_retention`, {
 				credentials: 'include'
 			});
 			if (res.ok) {
@@ -42,7 +43,7 @@
 		error = '';
 		message = '';
 		try {
-			const res = await fetch('http://localhost:3000/trash_retention', {
+			const res = await fetch(`${API_BASE}/trash_retention`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				credentials: 'include',

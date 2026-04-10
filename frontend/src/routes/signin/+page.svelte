@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { user } from '$lib/stores/auth';
+	import { API_BASE } from '$lib/config';
 
 	let message = $state('');
 	let isError = $state(false);
@@ -10,7 +11,7 @@
 		const form = e.target as HTMLFormElement;
 		const formData = new FormData(form);
 
-		const res = await fetch('http://localhost:3000/signin', {
+		const res = await fetch(`${API_BASE}/signin`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			credentials: 'include',

@@ -3,6 +3,7 @@
 	import RenameModal from './RenameModal.svelte';
 	import ShareModal from './ShareModal.svelte';
 	import { fetchFolders, openFolder } from '$lib/stores/folders';
+	import { API_BASE } from '$lib/config';
 
 	let { name, id, readonly = false } = $props<{ name: string; id: string; readonly?: boolean }>();
 
@@ -24,7 +25,7 @@
 	}
 
 	async function submitRename(newName: string): Promise<string | null> {
-		const res = await fetch(`http://localhost:3000/rename_folder`, {
+		const res = await fetch(`${API_BASE}/rename_folder`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			credentials: 'include',
@@ -36,7 +37,7 @@
 	}
 
 	async function deleteFolder() {
-		const res = await fetch(`http://localhost:3000/delete_folder`, {
+		const res = await fetch(`${API_BASE}/delete_folder`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			credentials: 'include',
