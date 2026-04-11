@@ -14,7 +14,7 @@ async fn main() {
         .await
         .expect("Failed to initialize app data");
 
-    match cleanup(&app.pool, &app.s3, &app.bucket).await {
+    match cleanup(&app.pool, &app.local_s3, &app.bucket).await {
         Ok(_) => log::info!("Cleanup completed successfully"),
         Err(e) => {
             log::error!("Error during cleanup: {:?}", e);

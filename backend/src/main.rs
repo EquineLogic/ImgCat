@@ -86,7 +86,6 @@ async fn main() {
         .route("/shared_with_me", get(routes::sharing::list_shared_with_me))
         .route("/shared_folder", get(routes::sharing::list_shared_folder))
         .route("/shared_files", get(routes::sharing::list_shared_files))
-        .route("/shared_file/{id}", get(routes::sharing::get_shared_file))
         .route("/copy_shared_file", post(routes::sharing::copy_shared_file))
         // WebSocket
         .route("/ws", get(routes::ws::ws_handler))

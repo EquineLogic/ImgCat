@@ -21,8 +21,7 @@ impl FileUrl {
     const URL_EXPIRY: Duration = Duration::from_secs(10 * 60);
 
     pub async fn new(data: &AppData, fileid: String) -> Result<Self, crate::Error> {
-        let presigned_request = data
-            .s3
+        let presigned_request = data.cdn_s3
             .get_object()
             .bucket(&data.bucket)
             .key(&fileid)

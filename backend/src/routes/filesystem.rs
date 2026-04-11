@@ -12,9 +12,8 @@ use crate::ops::models::{
 use crate::ops::{OpArgs, OpError, OpSuccess};
 use axum::{
     Json,
-    extract::{Multipart, Path, Query, State},
+    extract::{Multipart, Query, State},
 };
-use uuid::Uuid;
 
 pub async fn create_folder(
     State(app): State<AppData>,
@@ -26,7 +25,7 @@ pub async fn create_folder(
             name: payload.name,
             parent_id: payload.parent_id,
         },
-        Some(user.user_id),
+        Some(user.into_ctx()?),
     )
     .await
 }
@@ -40,7 +39,7 @@ pub async fn list_folders(
         OpArgs::ListFolder {
             parent_id: params.parent_id,
         },
-        Some(user.user_id),
+        Some(user.into_ctx()?),
     )
     .await
 }
@@ -50,7 +49,7 @@ pub async fn delete_folder(
     user: LoggedInUser,
     Json(payload): Json<DeleteFolder>,
 ) -> Result<OpSuccess, OpError> {
-    app.exec_op(OpArgs::DeleteFolder { id: payload.id }, Some(user.user_id))
+    app.exec_op(OpArgs::DeleteFolder { id: payload.id }, Some(user.into_ctx()?))
         .await
 }
 
@@ -64,7 +63,7 @@ pub async fn rename_folder(
             id: payload.id,
             name: payload.name,
         },
-        Some(user.user_id),
+        Some(user.into_ctx()?),
     )
     .await
 }
@@ -85,7 +84,7 @@ pub async fn upload_file(
             mime_type: payload.mime_type,
             parent_id: payload.parent_id,
         },
-        Some(user.user_id),
+        Some(user.into_ctx()?),
     )
     .await
 }
@@ -99,18 +98,9 @@ pub async fn list_files(
         OpArgs::ListFiles {
             parent_id: params.parent_id,
         },
-        Some(user.user_id),
+        Some(user.into_ctx()?),
     )
     .await
-}
-
-pub async fn get_file(
-    State(app): State<AppData>,
-    user: LoggedInUser,
-    Path(id): Path<Uuid>,
-) -> Result<OpSuccess, OpError> {
-    app.exec_op(OpArgs::GetFile { id }, Some(user.user_id))
-        .await
 }
 
 pub async fn rename_file(
@@ -123,7 +113,7 @@ pub async fn rename_file(
             id: payload.id,
             name: payload.name,
         },
-        Some(user.user_id),
+        Some(user.into_ctx()?),
     )
     .await
 }
@@ -133,7 +123,7 @@ pub async fn delete_file(
     user: LoggedInUser,
     Json(payload): Json<DeleteFolder>,
 ) -> Result<OpSuccess, OpError> {
-    app.exec_op(OpArgs::DeleteFile { id: payload.id }, Some(user.user_id))
+    app.exec_op(OpArgs::DeleteFile { id: payload.id }, Some(user.into_ctx()?))
         .await
 }
 
@@ -142,7 +132,7 @@ pub async fn reorder(
     user: LoggedInUser,
     Json(payload): Json<ReorderRequest>,
 ) -> Result<OpSuccess, OpError> {
-    app.exec_op(OpArgs::Reorder { ids: payload.ids }, Some(user.user_id))
+    app.exec_op(OpArgs::Reorder { ids: payload.ids }, Some(user.into_ctx()?))
         .await
 }
 
@@ -156,7 +146,7 @@ pub async fn move_entry(
             id: payload.id,
             parent_id: payload.parent_id,
         },
-        Some(user.user_id),
+        Some(user.into_ctx()?),
     )
     .await
 }
@@ -165,7 +155,7 @@ pub async fn list_trash(
     State(app): State<AppData>,
     user: LoggedInUser,
 ) -> Result<OpSuccess, OpError> {
-    app.exec_op(OpArgs::ListTrash, Some(user.user_id)).await
+    app.exec_op(OpArgs::ListTrash, Some(user.into_ctx()?)).await
 }
 
 pub async fn restore_entry(
@@ -173,7 +163,7 @@ pub async fn restore_entry(
     user: LoggedInUser,
     Json(payload): Json<DeleteFolder>,
 ) -> Result<OpSuccess, OpError> {
-    app.exec_op(OpArgs::RestoreEntry { id: payload.id }, Some(user.user_id))
+    app.exec_op(OpArgs::RestoreEntry { id: payload.id }, Some(user.into_ctx()?))
         .await
 }
 
@@ -184,7 +174,7 @@ pub async fn delete_trash_entry(
 ) -> Result<OpSuccess, OpError> {
     app.exec_op(
         OpArgs::DeleteTrashEntry { id: payload.id },
-        Some(user.user_id),
+        Some(user.into_ctx()?),
     )
     .await
 }

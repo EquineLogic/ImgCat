@@ -51,7 +51,7 @@ pub async fn sign_out(
     State(app): State<AppData>,
     user: LoggedInUser,
 ) -> Result<OpSuccess, OpError> {
-    app.exec_op(OpArgs::DeleteSession { id: user.session_id }, Some(user.user_id)).await
+    app.exec_op(OpArgs::DeleteSession { id: user.session_id }, Some(user.into_ctx()?)).await
 }
 
 pub async fn change_username(
@@ -67,7 +67,7 @@ pub async fn change_username(
         OpArgs::ChangeUsername {
             new_username: payload.username,
         },
-        Some(user.user_id),
+        Some(user.into_ctx()?),
     )
     .await
 }
@@ -86,7 +86,7 @@ pub async fn change_password(
             curr_password: payload.curr_password,
             new_password: payload.new_password,
         },
-        Some(user.user_id),
+        Some(user.into_ctx()?),
     )
     .await
 }
@@ -95,7 +95,7 @@ pub async fn get_trash_retention(
     State(app): State<AppData>,
     user: LoggedInUser,
 ) -> Result<OpSuccess, OpError> {
-    app.exec_op(OpArgs::GetTrashRetention, Some(user.user_id))
+    app.exec_op(OpArgs::GetTrashRetention, Some(user.into_ctx()?))
         .await
 }
 
@@ -106,7 +106,7 @@ pub async fn set_trash_retention(
 ) -> Result<OpSuccess, OpError> {
     app.exec_op(
         OpArgs::SetTrashRetention { days: payload.days },
-        Some(user.user_id),
+        Some(user.into_ctx()?),
     )
     .await
 }

@@ -19,7 +19,6 @@ CREATE TABLE sessions (
     expires_at TIMESTAMPTZ NOT NULL
 );
 
-
 -- 3. FILESYSTEM TYPES
 -- 'folder' represents a directory.
 -- 'file_link' represents a hardlink pointing to the actual image data.
@@ -158,29 +157,3 @@ CREATE TABLE permissions (
 
 CREATE INDEX idx_permissions_grantee ON permissions(grantee_id);
 CREATE INDEX idx_permissions_filesystem ON permissions(filesystem_id);
-
--- 9. SECURITY VIEW
--- Merges "I own it" with "I have permission" so backend queries can use
--- `WHERE accessible_by = $user_id` instead of duplicating ownership/permission logic.
-CREATE VIEW accessible_filesystem AS
--- Items the user owns
-SELECT fs.id, fs.parent_id, fs.name, fs.type, fs.file_id,
-       fs.owner_id AS accessible_by,
-       'owner'::access_level AS access_level,
-       fs.path, fs.sort_order, fs.created_at, fs.updated_at
-FROM filesystem fs
-WHERE fs.deleted_at IS NULL
-
-UNION ALL
-
--- Items shared via permissions (includes descendants of shared folders via LTREE)
-SELECT fs.id, fs.parent_id, fs.name, fs.type, fs.file_id,
-       p.grantee_id AS accessible_by,
-       p.access_level,
-       fs.path, fs.sort_order, fs.created_at, fs.updated_at
-FROM filesystem fs
-JOIN permissions p ON fs.path <@ (
-    SELECT pfs.path FROM filesystem pfs
-    WHERE pfs.id = p.filesystem_id AND pfs.deleted_at IS NULL
-)
-WHERE fs.deleted_at IS NULL;

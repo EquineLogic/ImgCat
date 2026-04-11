@@ -7,9 +7,8 @@ use crate::ops::models::{
 use crate::ops::{OpArgs, OpError, OpSuccess};
 use axum::{
     Json,
-    extract::{Path, Query, State},
+    extract::{Query, State},
 };
-use uuid::Uuid;
 
 pub async fn send_share_request(
     State(app): State<AppData>,
@@ -22,7 +21,7 @@ pub async fn send_share_request(
             recipient_username: payload.recipient_username,
             access_level: payload.access_level.unwrap_or_else(|| "viewer".into()),
         },
-        Some(user.user_id),
+        Some(user.into_ctx()?),
     )
     .await
 }
@@ -34,7 +33,7 @@ pub async fn cancel_share_request(
 ) -> Result<OpSuccess, OpError> {
     app.exec_op(
         OpArgs::CancelShareRequest { id: payload.id },
-        Some(user.user_id),
+        Some(user.into_ctx()?),
     )
     .await
 }
@@ -46,7 +45,7 @@ pub async fn accept_share_request(
 ) -> Result<OpSuccess, OpError> {
     app.exec_op(
         OpArgs::AcceptShareRequest { id: payload.id },
-        Some(user.user_id),
+        Some(user.into_ctx()?),
     )
     .await
 }
@@ -58,7 +57,7 @@ pub async fn decline_share_request(
 ) -> Result<OpSuccess, OpError> {
     app.exec_op(
         OpArgs::DeclineShareRequest { id: payload.id },
-        Some(user.user_id),
+        Some(user.into_ctx()?),
     )
     .await
 }
@@ -67,7 +66,7 @@ pub async fn list_pending_requests(
     State(app): State<AppData>,
     user: LoggedInUser,
 ) -> Result<OpSuccess, OpError> {
-    app.exec_op(OpArgs::ListPendingRequests, Some(user.user_id))
+    app.exec_op(OpArgs::ListPendingRequests, Some(user.into_ctx()?))
         .await
 }
 
@@ -75,7 +74,7 @@ pub async fn list_sent_requests(
     State(app): State<AppData>,
     user: LoggedInUser,
 ) -> Result<OpSuccess, OpError> {
-    app.exec_op(OpArgs::ListSentRequests, Some(user.user_id))
+    app.exec_op(OpArgs::ListSentRequests, Some(user.into_ctx()?))
         .await
 }
 
@@ -86,7 +85,7 @@ pub async fn revoke_permission(
 ) -> Result<OpSuccess, OpError> {
     app.exec_op(
         OpArgs::RevokePermission { id: payload.id },
-        Some(user.user_id),
+        Some(user.into_ctx()?),
     )
     .await
 }
@@ -95,14 +94,14 @@ pub async fn list_my_grants(
     State(app): State<AppData>,
     user: LoggedInUser,
 ) -> Result<OpSuccess, OpError> {
-    app.exec_op(OpArgs::ListMyGrants, Some(user.user_id)).await
+    app.exec_op(OpArgs::ListMyGrants, Some(user.into_ctx()?)).await
 }
 
 pub async fn list_shared_with_me(
     State(app): State<AppData>,
     user: LoggedInUser,
 ) -> Result<OpSuccess, OpError> {
-    app.exec_op(OpArgs::ListSharedWithMe, Some(user.user_id))
+    app.exec_op(OpArgs::ListSharedWithMe, Some(user.into_ctx()?))
         .await
 }
 
@@ -116,7 +115,7 @@ pub async fn list_shared_folder(
             permission_filesystem_id: params.permission_filesystem_id,
             parent_id: params.parent_id,
         },
-        Some(user.user_id),
+        Some(user.into_ctx()?),
     )
     .await
 }
@@ -131,18 +130,9 @@ pub async fn list_shared_files(
             permission_filesystem_id: params.permission_filesystem_id,
             parent_id: params.parent_id,
         },
-        Some(user.user_id),
+        Some(user.into_ctx()?),
     )
     .await
-}
-
-pub async fn get_shared_file(
-    State(app): State<AppData>,
-    user: LoggedInUser,
-    Path(id): Path<Uuid>,
-) -> Result<OpSuccess, OpError> {
-    app.exec_op(OpArgs::GetSharedFile { id }, Some(user.user_id))
-        .await
 }
 
 pub async fn copy_shared_file(
@@ -155,7 +145,7 @@ pub async fn copy_shared_file(
             filesystem_id: payload.filesystem_id,
             parent_id: payload.parent_id,
         },
-        Some(user.user_id),
+        Some(user.into_ctx()?),
     )
     .await
 }

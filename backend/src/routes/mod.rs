@@ -1,5 +1,4 @@
 use axum::http::HeaderValue;
-use axum::http::header::CONTENT_TYPE;
 use axum::response::IntoResponse;
 use axum::{Json, http::StatusCode};
 use reqwest::header::SET_COOKIE;
@@ -22,9 +21,6 @@ impl IntoResponse for OpSuccess {
             Self::FolderRenamed => StatusCode::NO_CONTENT.into_response(),
             Self::FileUploaded => StatusCode::CREATED.into_response(),
             Self::Files { files } => (StatusCode::OK, Json(files)).into_response(),
-            Self::FileData { data, mime_type } => {
-                ([(CONTENT_TYPE, mime_type)], data).into_response()
-            }
             Self::FileRenamed => StatusCode::NO_CONTENT.into_response(),
             Self::FileDeleted => StatusCode::NO_CONTENT.into_response(),
             Self::Reordered => StatusCode::NO_CONTENT.into_response(),
@@ -99,6 +95,7 @@ impl IntoResponse for OpError {
             Self::BadRequest { reason } => (StatusCode::BAD_REQUEST, reason).into_response(),
             Self::TooManyItems => (StatusCode::BAD_REQUEST, "Too many items to process at once").into_response(),
             Self::Unauthorized { reason } => (StatusCode::UNAUTHORIZED, reason).into_response(),
+            Self::UserOnlyOp => (StatusCode::BAD_REQUEST, "Operation can only be performed by users (not groups!)").into_response(),
         }
     }
 }

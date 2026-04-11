@@ -10,11 +10,12 @@ pub static CONFIG: LazyLock<Config> =
 /// For S3->Seaweed
 #[derive(Serialize, Deserialize)]
 pub struct ObjectStorage {
-    pub endpoint: Option<String>,
-    pub secure: Option<bool>,
-    pub access_key: Option<String>,
-    pub secret_key: Option<String>,
-    pub bucket: Option<String>,
+    pub cdn_endpoint: String,
+    pub local_endpoint: String,
+    pub secure: String,
+    pub access_key: String,
+    pub secret_key: String,
+    pub bucket: String,
 }
 
 #[derive(Serialize, Deserialize)]
