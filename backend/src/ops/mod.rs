@@ -96,7 +96,8 @@ pub enum OpArgs {
     CreateGroupSession { group_id: Uuid },
     ListGroups {},
     AcceptGroupInvite { group_id: Uuid },
-    DenyGroupInvite { group_id: Uuid }
+    DenyGroupInvite { group_id: Uuid },
+    InviteGroupMember { target_id: Uuid, access_level: AccessLevel } // must be from group session
 }
 
 // ── Outputs ─────────────────────────────────────────────────────────────
@@ -146,7 +147,8 @@ pub enum OpSuccess {
     GroupMembers {
         group_members: Vec<GroupMember>
     },
-    GroupInviteDenied
+    GroupInviteDenied,
+    GroupInviteCreated
 }
 
 // ── Errors ──────────────────────────────────────────────────────────────
@@ -161,6 +163,7 @@ pub enum OpError {
     TooManyItems,
     Unauthorized { reason: String },
     UserOnlyOp,
+    GroupOnlyOp
 }
 
 impl<T: Error + Send + Sync + 'static> From<T> for OpError {
@@ -212,6 +215,26 @@ fn salt_and_hash_password(password: &str) -> String {
 // ── Execution ───────────────────────────────────────────────────────────
 
 impl AppData {
+    /// Returns underlying user id and access level of current context
+    async fn get_access_level(&self, ctx: &OpCtx) -> Result<(Uuid, AccessLevel), OpError> {
+        let (group_id, active_membership_id) = match &ctx {
+            OpCtx::Group { id, active_membership_id, .. } => (*id, *active_membership_id),
+            OpCtx::User { id, .. }  => return Ok((*id, AccessLevel::Owner))
+        };
+
+        let Some(res) = sqlx::query("SELECT user_id, access_level FROM group_members WHERE id = $1 AND group_id = $2")
+        .bind(active_membership_id)
+        .bind(group_id)
+        .fetch_optional(&self.pool)
+        .await? else {
+            return Err(OpError::EntityNotFound { reason: "Connected user is not a member of the group" });
+        };
+
+        let access_level: AccessLevel = res.try_get(0)?;
+        let user_id: Uuid = res.try_get(0)?;
+        Ok((user_id, access_level))
+    }
+
     pub async fn exec_op(&self, op: OpArgs, user_id: Option<OpCtx>) -> Result<OpSuccess, OpError> {
         match op {
             // ─── Filesystem ─────────────────────────────────────────
@@ -817,24 +840,24 @@ impl AppData {
 
                 let group_members: Vec<GroupMember> = sqlx::query_as(
                     "SELECT 
-    gm.id, 
-    gm.group_id, 
-    gm.group_type,
-    u_group.name AS group_name,           
-    u_group.username AS group_username,  
-    gm.user_id,
-    gm.user_type,
-    gm.sender_id,
-    gm.sender_type,
-    u.username AS sender_username, -- The new field
-    gm.access_level, 
-    gm.state, 
-    gm.created_at
-FROM group_members gm
-LEFT JOIN users u_group ON gm.group_id = u_group.id AND gm.group_type = u_group.user_type
-LEFT JOIN users u ON gm.sender_id = u.id AND gm.sender_type = u.user_type
-WHERE gm.user_id = $1
-ORDER BY gm.created_at DESC
+                            gm.id, 
+                            gm.group_id, 
+                            gm.group_type,
+                            u_group.name AS group_name,           
+                            u_group.username AS group_username,  
+                            gm.user_id,
+                            gm.user_type,
+                            gm.sender_id,
+                            gm.sender_type,
+                            u.username AS sender_username, -- The new field
+                            gm.access_level, 
+                            gm.state, 
+                            gm.created_at
+                        FROM group_members gm
+                        LEFT JOIN users u_group ON gm.group_id = u_group.id AND gm.group_type = u_group.user_type
+                        LEFT JOIN users u ON gm.sender_id = u.id AND gm.sender_type = u.user_type
+                        WHERE gm.user_id = $1
+                        ORDER BY gm.created_at DESC
                     "
                 )
                 .bind(uid.account_id())
@@ -931,6 +954,49 @@ ORDER BY gm.created_at DESC
                 Ok(OpSuccess::GroupInviteDenied)
             }
 
+            OpArgs::InviteGroupMember { target_id, access_level } => {
+                let Some(uid) = user_id else {
+                    return Err(OpError::UserNotLoggedIn);
+                };
+                if !uid.is_group() {
+                    return Err(OpError::GroupOnlyOp);
+                }
+
+                let (underlying_user_id, underlying_access_level) = self.get_access_level(&uid).await?;
+                if underlying_access_level == AccessLevel::Viewer || underlying_access_level < access_level {
+                    return Err(OpError::EntityConflict { reason: "Non-owner user trying to invite new user" })
+                }
+
+                sqlx::query(
+                    "
+                    INSERT INTO group_members (
+                        group_id, 
+                        user_id, 
+                        sender_id, 
+                        access_level, 
+                        state
+                    )
+                    VALUES (
+                        $1,        -- The ID of the group 
+                        $2,        -- The ID of the user to add
+                        $3,        -- The creator 
+                        $4, 
+                        'pending_invite' 
+                    )
+                    "
+                )
+                .bind(&uid.account_id())
+                .bind(target_id)
+                .bind(underlying_user_id)
+                .bind(access_level)
+                .execute(&self.pool)
+                .await?;
+
+                self.notify.send_to(target_id, SharingEvent::NewGroupInvite { group_id: uid.account_id(), group_username: uid.username() });
+
+                Ok(OpSuccess::GroupInviteCreated)
+            }
+
             OpArgs::CreateLoginSession { username, password } => {
                 let mut tx = self.pool.begin().await?;
 
@@ -989,7 +1055,7 @@ ORDER BY gm.created_at DESC
                 Ok(OpSuccess::DeletedSession {
                     id,
                     token_type: SessionType::Login,
-                }) // TODO: Change this if/when we add support for diff session types
+                }) 
             }
 
             OpArgs::ChangeUsername { new_username } => {

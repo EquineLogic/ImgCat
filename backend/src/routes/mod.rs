@@ -64,7 +64,7 @@ impl IntoResponse for OpSuccess {
             }
             Self::TrashRetentionSet => StatusCode::OK.into_response(),
             Self::GroupMembers { group_members } => (StatusCode::OK, Json(group_members)).into_response(),
-            Self::GroupInviteDenied => StatusCode::OK.into_response(),
+            Self::GroupInviteDenied | Self::GroupInviteCreated => StatusCode::OK.into_response(),
         }
     }
 }
@@ -85,6 +85,7 @@ impl IntoResponse for OpError {
             Self::TooManyItems => (StatusCode::BAD_REQUEST, "Too many items to process at once").into_response(),
             Self::Unauthorized { reason } => (StatusCode::UNAUTHORIZED, reason).into_response(),
             Self::UserOnlyOp => (StatusCode::BAD_REQUEST, "Operation can only be performed by users (not groups!)").into_response(),
+            Self::GroupOnlyOp => (StatusCode::BAD_REQUEST, "Operation can only be performed by groups (not users!)").into_response(),
         }
     }
 }

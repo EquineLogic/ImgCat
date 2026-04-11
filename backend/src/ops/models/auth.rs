@@ -193,7 +193,7 @@ pub enum SessionType {
     GroupSession
 }
 
-#[derive(Debug, Serialize, Deserialize, sqlx::Type)]
+#[derive(Debug, Serialize, Deserialize, sqlx::Type, PartialEq, Eq, PartialOrd)]
 #[sqlx(type_name = "access_level", rename_all = "lowercase")]
 pub enum AccessLevel {
     Viewer,

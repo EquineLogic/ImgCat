@@ -10,23 +10,6 @@ pub enum SharingEvent {
     NewGroupInvite {
         group_id: Uuid,
         group_username: String,
-        group_name: String
-    },
-    ShareRequestAccepted {
-        request_id: Uuid,
-        filesystem_id: Uuid,
-        recipient_username: String,
-    },
-    ShareRequestDeclined {
-        request_id: Uuid,
-        recipient_username: String,
-    },
-    ShareRequestCancelled {
-        request_id: Uuid,
-    },
-    PermissionRevoked {
-        permission_id: Uuid,
-        filesystem_id: Uuid,
     },
 }
 
