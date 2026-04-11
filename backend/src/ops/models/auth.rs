@@ -9,6 +9,7 @@ use rand::{distr::SampleString, rng};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use uuid::Uuid;
+use chrono::DateTime;
 
 fn is_valid_password(password: &str) -> bool {
     let has_uppercase = password.chars().any(|c| c.is_uppercase());
@@ -61,17 +62,17 @@ impl Session {
     const TOKEN_LENGTH: usize = 256;
     const EXPIRY: Duration = Duration::from_secs(60 * 60 * 24);
 
-    pub async fn new<'c, E>(executor: E, user_id: Uuid, username: String, underlying_group_member: Option<Uuid>) -> Result<Self, crate::Error>
+    pub async fn new<'c, E>(executor: E, user_id: Uuid, username: String, active_membership_id: Option<Uuid>) -> Result<Self, crate::Error>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
         let token: String = Alphanumeric.sample_string(&mut rng(), Self::TOKEN_LENGTH);
 
-        sqlx::query("INSERT INTO sessions (user_id, token, expires_at, underlying_group_member) VALUES ($1, $2, $3, $4)")
+        sqlx::query("INSERT INTO sessions (user_id, token, expires_at, active_membership_id) VALUES ($1, $2, $3, $4)")
             .bind(user_id)
             .bind(&token)
             .bind(Utc::now() + Self::EXPIRY)
-            .bind(underlying_group_member)
+            .bind(active_membership_id)
             .execute(executor)
             .await
             .map_err(|e| format!("Failed to create session: {e}"))?;
@@ -86,7 +87,7 @@ pub struct LoggedInUser {
     pub user_type: String,
     pub username: String,
     pub session_id: Uuid,
-    pub underlying_group_member: Option<Uuid>
+    pub active_membership_id: Option<Uuid>
 }
 
 impl FromRequestParts<AppData> for LoggedInUser {
@@ -116,11 +117,11 @@ impl FromRequestParts<AppData> for LoggedInUser {
             username: String,
             user_type: String,
             session_id: Uuid,
-            underlying_group_member: Option<Uuid>
+            active_membership_id: Option<Uuid>
         }
 
         let row: Row = sqlx::query_as(
-                "SELECT u.id, u.user_type, u.username, s.id AS session_id, s.underlying_group_member FROM sessions s JOIN users u ON s.user_id = u.id WHERE s.token = $1 AND s.expires_at > NOW()"
+                "SELECT u.id, u.user_type, u.username, s.id AS session_id, s.active_membership_id FROM sessions s JOIN users u ON s.user_id = u.id WHERE s.token = $1 AND s.expires_at > NOW()"
             )
             .bind(&session_token)
             .fetch_optional(&state.pool)
@@ -133,19 +134,19 @@ impl FromRequestParts<AppData> for LoggedInUser {
             })?
             .ok_or_else(|| (StatusCode::UNAUTHORIZED, "Invalid authorization provided".to_string()))?;
 
-        Ok(LoggedInUser { user_id: row.id, username: row.username, user_type: row.user_type, session_id: row.session_id, underlying_group_member: row.underlying_group_member })
+        Ok(LoggedInUser { user_id: row.id, username: row.username, user_type: row.user_type, session_id: row.session_id, active_membership_id: row.active_membership_id })
     }
 }
 
 impl LoggedInUser {
-    pub fn into_ctx(&self) -> Result<OpCtx, OpError> {
+    pub fn into_ctx(self) -> Result<OpCtx, OpError> {
         match self.user_type.as_str() {
-            "user" => Ok(OpCtx::User(self.user_id)),
+            "user" => Ok(OpCtx::User { id: self.user_id, username: self.username }),
             "group" => {
-                let Some(underlying_group_member) = self.underlying_group_member else {
-                    return Err(OpError::Generic("Session is a group session but no underlying_group_member found".into()));
+                let Some(active_membership_id) = self.active_membership_id else {
+                    return Err(OpError::Generic("Session is a group session but no active_membership_id found".into()));
                 };
-                Ok(OpCtx::Group { id: self.user_id, underlying_group_member })
+                Ok(OpCtx::Group { id: self.user_id, username: self.username, active_membership_id })
             },
             _ => Err(OpError::Generic("Invalid user type provided".into()))
         }
@@ -190,4 +191,44 @@ pub struct SetTrashRetention {
 pub enum SessionType {
     Login,
     GroupSession
+}
+
+#[derive(Debug, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "access_level", rename_all = "lowercase")]
+pub enum AccessLevel {
+    Viewer,
+    Editor,
+    Owner,
+}
+
+#[derive(Debug, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "group_member_state", rename_all = "snake_case")]
+pub enum GroupMemberState {
+    PendingInvite,
+    Accepted,
+}
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct GroupMember {
+    pub id: Uuid,
+
+    // Source Group
+    pub group_id: Uuid,
+    pub group_type: String, // Defaults to 'group'
+    pub group_name: String,
+    pub group_username: String,
+
+    // Target User
+    pub user_id: Uuid,
+    pub user_type: String,  // Defaults to 'user'
+
+    // Sender
+    pub sender_id: Option<Uuid>,
+    pub sender_type: Option<String>, // Defaults to 'user'
+    pub sender_username: Option<String>,
+
+    // Metadata
+    pub access_level: AccessLevel,
+    pub state: GroupMemberState,
+    pub created_at: DateTime<Utc>,
 }

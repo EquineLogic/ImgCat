@@ -48,7 +48,7 @@ pub static MIGRATION: Migration = Migration {
                 "DROP INDEX idx_permissions_grantee",
                 "DROP INDEX idx_permissions_filesystem",
                 "DROP TABLE permissions",
-                "ALTER TABLE sessions ADD COLUMN underlying_group_member UUID REFERENCES group_members(user_id) ON DELETE CASCADE"
+                "ALTER TABLE sessions ADD COLUMN active_membership_id UUID REFERENCES group_members(id) ON DELETE CASCADE"
             ];
 
             for stmt in stmts.iter() {

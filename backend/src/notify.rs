@@ -7,12 +7,10 @@ use uuid::Uuid;
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "event")]
 pub enum SharingEvent {
-    NewShareRequest {
-        request_id: Uuid,
-        filesystem_id: Uuid,
-        entry_name: String,
-        sender_username: String,
-        access_level: String,
+    NewGroupInvite {
+        group_id: Uuid,
+        group_username: String,
+        group_name: String
     },
     ShareRequestAccepted {
         request_id: Uuid,

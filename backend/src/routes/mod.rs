@@ -8,7 +8,6 @@ use crate::ops::{OpError, OpSuccess};
 
 pub mod auth;
 pub mod filesystem;
-pub mod sharing;
 pub mod ws;
 
 impl IntoResponse for OpSuccess {
@@ -30,18 +29,6 @@ impl IntoResponse for OpSuccess {
             Self::TrashEntryDeleted => StatusCode::NO_CONTENT.into_response(),
 
             // Sharing
-            Self::ShareRequestSent => (StatusCode::CREATED, "Share request sent").into_response(),
-            Self::ShareRequestCancelled => StatusCode::NO_CONTENT.into_response(),
-            Self::ShareRequestAccepted => StatusCode::OK.into_response(),
-            Self::ShareRequestDeclined => StatusCode::NO_CONTENT.into_response(),
-            Self::PendingRequests { requests } => (StatusCode::OK, Json(requests)).into_response(),
-            Self::SentRequests { requests } => (StatusCode::OK, Json(requests)).into_response(),
-            Self::PermissionRevoked => StatusCode::NO_CONTENT.into_response(),
-            Self::MyGrants { grants } => (StatusCode::OK, Json(grants)).into_response(),
-            Self::SharedWithMe { items } => (StatusCode::OK, Json(items)).into_response(),
-            Self::SharedFolders { folders } => (StatusCode::OK, Json(folders)).into_response(),
-            Self::SharedFiles { files } => (StatusCode::OK, Json(files)).into_response(),
-            Self::FileCopied => (StatusCode::CREATED, "File copied to your library").into_response(),
             Self::CreatedSession { username, token, token_type } => {
                 let mut resp = (StatusCode::OK, Json(serde_json::json!({ "username": username, "token": token, "token_type": token_type }))).into_response();
                 if token_type == SessionType::Login {
@@ -76,6 +63,8 @@ impl IntoResponse for OpSuccess {
                 (StatusCode::OK, Json(serde_json::json!({ "days": days }))).into_response()
             }
             Self::TrashRetentionSet => StatusCode::OK.into_response(),
+            Self::GroupMembers { group_members } => (StatusCode::OK, Json(group_members)).into_response(),
+            Self::GroupInviteDenied => StatusCode::OK.into_response(),
         }
     }
 }
