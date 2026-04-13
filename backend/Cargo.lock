@@ -533,6 +533,7 @@ dependencies = [
  "chrono",
  "env_logger",
  "futures",
+ "kittycat",
  "log",
  "rand 0.10.0",
  "reqwest",
@@ -1809,6 +1810,15 @@ dependencies = [
  "futures-util",
  "once_cell",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "kittycat"
+version = "0.2.0"
+source = "git+https://github.com/infinitybotlist/kittycat#9047452888798e977dbb2c538287e10cc0d96cdb"
+dependencies = [
+ "indexmap",
+ "serde",
 ]
 
 [[package]]

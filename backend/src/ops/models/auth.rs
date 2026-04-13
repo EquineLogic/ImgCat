@@ -193,14 +193,6 @@ pub enum SessionType {
     GroupSession
 }
 
-#[derive(Debug, Serialize, Deserialize, sqlx::Type, PartialEq, Eq, PartialOrd)]
-#[sqlx(type_name = "access_level", rename_all = "lowercase")]
-pub enum AccessLevel {
-    Viewer,
-    Editor,
-    Owner,
-}
-
 #[derive(Debug, Serialize, Deserialize, sqlx::Type)]
 #[sqlx(type_name = "group_member_state", rename_all = "snake_case")]
 pub enum GroupMemberState {
@@ -228,7 +220,7 @@ pub struct GroupMember {
     pub sender_username: Option<String>,
 
     // Metadata
-    pub access_level: AccessLevel,
+    pub perms: Vec<String>,
     pub state: GroupMemberState,
     pub created_at: DateTime<Utc>,
 }

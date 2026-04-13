@@ -7,6 +7,7 @@ use argon2::{
     password_hash::{PasswordHash, SaltString, rand_core::OsRng},
 };
 use aws_sdk_s3::types::{Delete, ObjectIdentifier};
+use kittycat::perms::check_patch_changes_str;
 use models::*;
 use sqlx::Row;
 use std::error::Error;
@@ -97,7 +98,7 @@ pub enum OpArgs {
     ListGroups {},
     AcceptGroupInvite { group_id: Uuid },
     DenyGroupInvite { group_id: Uuid },
-    InviteGroupMember { target_id: Uuid, access_level: AccessLevel } // must be from group session
+    InviteGroupMember { target_id: Uuid, perms: Vec<String> } // must be from group session
 }
 
 // ── Outputs ─────────────────────────────────────────────────────────────
@@ -216,13 +217,13 @@ fn salt_and_hash_password(password: &str) -> String {
 
 impl AppData {
     /// Returns underlying user id and access level of current context
-    async fn get_access_level(&self, ctx: &OpCtx) -> Result<(Uuid, AccessLevel), OpError> {
+    async fn get_perms(&self, ctx: &OpCtx) -> Result<(Uuid, Vec<String>), OpError> {
         let (group_id, active_membership_id) = match &ctx {
             OpCtx::Group { id, active_membership_id, .. } => (*id, *active_membership_id),
-            OpCtx::User { id, .. }  => return Ok((*id, AccessLevel::Owner))
+            OpCtx::User { id, .. }  => return Ok((*id, vec!["global.*".to_string()]))
         };
 
-        let Some(res) = sqlx::query("SELECT user_id, access_level FROM group_members WHERE id = $1 AND group_id = $2")
+        let Some(res) = sqlx::query("SELECT user_id, perms FROM group_members WHERE id = $1 AND group_id = $2")
         .bind(active_membership_id)
         .bind(group_id)
         .fetch_optional(&self.pool)
@@ -230,9 +231,9 @@ impl AppData {
             return Err(OpError::EntityNotFound { reason: "Connected user is not a member of the group" });
         };
 
-        let access_level: AccessLevel = res.try_get(0)?;
         let user_id: Uuid = res.try_get(0)?;
-        Ok((user_id, access_level))
+        let perms: Vec<String> = res.try_get(1)?;
+        Ok((user_id, perms))
     }
 
     pub async fn exec_op(&self, op: OpArgs, user_id: Option<OpCtx>) -> Result<OpSuccess, OpError> {
@@ -797,14 +798,14 @@ impl AppData {
                         group_id, 
                         user_id, 
                         sender_id, 
-                        access_level, 
+                        perms, 
                         state
                     )
                     VALUES (
                         $1,        -- The ID of the group just created
                         $2,        -- The ID of the user creating the group
                         $2,        -- The creator is also the sender
-                        'owner',   -- Initial owner gets full permissions
+                        $3,        -- Owner gets full perms (global.*)
                         'accepted' -- No invite needed for the creator
                     )
                     RETURNING id
@@ -812,6 +813,7 @@ impl AppData {
                 )
                 .bind(&new_user_id)
                 .bind(&uid.account_id())
+                .bind(&["global.*"])
                 .fetch_one(&mut *tx)
                 .await?;
 
@@ -850,7 +852,7 @@ impl AppData {
                             gm.sender_id,
                             gm.sender_type,
                             u.username AS sender_username, -- The new field
-                            gm.access_level, 
+                            gm.perms, 
                             gm.state, 
                             gm.created_at
                         FROM group_members gm
@@ -887,7 +889,7 @@ impl AppData {
 
                 let membership_id: Uuid = id.get(0);
 
-                let session = models::auth::Session::new(&mut *tx, group_id, uid.username(), Some(membership_id))
+                let session = Session::new(&mut *tx, group_id, uid.username(), Some(membership_id))
                     .await
                     .map_err(|e| OpError::Generic(e))?;
 
@@ -910,7 +912,7 @@ impl AppData {
 
                 let mut tx = self.pool.begin().await?;
 
-                let Some(id) = sqlx::query("UPDATE group_members SET state = 'accepted' WHERE user_id = $1 AND state = 'pending_invite' AND group_id = $2 RETURNING id")
+                let Some(id) = sqlx::query("UPDATE group_members SET state = 'accepted' WHERE user_id = $1 AND state = 'pending_invite' AND group_id = $2 RETURNING id, sender_id")
                 .bind(uid.account_id())
                 .bind(group_id)
                 .fetch_optional(&mut *tx)
@@ -919,12 +921,15 @@ impl AppData {
                 };
 
                 let membership_id: Uuid = id.get(0);
+                let sender_id: Uuid = id.get(1);
 
                 let session = models::auth::Session::new(&mut *tx, group_id, uid.username(), Some(membership_id))
                     .await
                     .map_err(|e| OpError::Generic(e))?;
 
                 tx.commit().await?;
+
+                self.notify.send_to(sender_id, SharingEvent::AcceptedGroupInvite { group_id, user_id: uid.account_id() });
 
                 Ok(OpSuccess::CreatedSession {
                     username: session.username,
@@ -941,31 +946,31 @@ impl AppData {
                     return Err(OpError::UserOnlyOp)
                 }
 
-                let res = sqlx::query("DELETE FROM group_members WHERE user_id = $1 AND state = 'pending_invite' AND group_id = $2")
+                let Some(res) = sqlx::query("DELETE FROM group_members WHERE user_id = $1 AND state = 'pending_invite' AND group_id = $2 RETURNING sender_id")
                 .bind(uid.account_id())
                 .bind(group_id)
-                .execute(&self.pool)
-                .await?;
-
-                if res.rows_affected() == 0 {
+                .fetch_optional(&self.pool)
+                .await? else {
                     return Err(OpError::EntityNotFound { reason: "User does not have a pending invite for the requested group" });
-                }
+                };
+
+                let sender_id = res.get(0);
+
+                self.notify.send_to(sender_id, SharingEvent::DeniedGroupInvite { group_id, user_id: uid.account_id() });
 
                 Ok(OpSuccess::GroupInviteDenied)
             }
 
-            OpArgs::InviteGroupMember { target_id, access_level } => {
+            OpArgs::InviteGroupMember { target_id, perms } => {
                 let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
                 if !uid.is_group() {
                     return Err(OpError::GroupOnlyOp);
                 }
-
-                let (underlying_user_id, underlying_access_level) = self.get_access_level(&uid).await?;
-                if underlying_access_level == AccessLevel::Viewer || underlying_access_level < access_level {
-                    return Err(OpError::EntityConflict { reason: "Non-owner user trying to invite new user" })
-                }
+                let group_id = uid.account_id();
+                let (creator_user_id, creator_perms) = self.get_perms(&uid).await?;
+                check_patch_changes_str(&creator_perms, &[], &perms)?;
 
                 sqlx::query(
                     "
@@ -973,7 +978,7 @@ impl AppData {
                         group_id, 
                         user_id, 
                         sender_id, 
-                        access_level, 
+                        perms, 
                         state
                     )
                     VALUES (
@@ -985,14 +990,14 @@ impl AppData {
                     )
                     "
                 )
-                .bind(&uid.account_id())
+                .bind(group_id)
                 .bind(target_id)
-                .bind(underlying_user_id)
-                .bind(access_level)
+                .bind(creator_user_id)
+                .bind(perms)
                 .execute(&self.pool)
                 .await?;
 
-                self.notify.send_to(target_id, SharingEvent::NewGroupInvite { group_id: uid.account_id(), group_username: uid.username() });
+                self.notify.send_to(target_id, SharingEvent::NewGroupInvite { group_id: uid.account_id() });
 
                 Ok(OpSuccess::GroupInviteCreated)
             }

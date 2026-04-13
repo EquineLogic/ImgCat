@@ -9,8 +9,17 @@ use uuid::Uuid;
 pub enum SharingEvent {
     NewGroupInvite {
         group_id: Uuid,
-        group_username: String,
     },
+    /// A user has accepted a group invite made by the sender
+    AcceptedGroupInvite {
+        group_id: Uuid,
+        user_id: Uuid,
+    },
+    /// A user has denied a group invite made by the sender
+    DeniedGroupInvite {
+        group_id: Uuid,
+        user_id: Uuid,
+    }
 }
 
 pub struct NotifyHub {

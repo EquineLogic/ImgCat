@@ -33,7 +33,7 @@ pub static MIGRATION: Migration = Migration {
                     sender_type TEXT NOT NULL DEFAULT 'user' CHECK (user_type = 'user'),
 
                     -- metadata
-                    access_level access_level NOT NULL DEFAULT 'viewer',
+                    perms TEXT[] NOT NULL,
                     created_at TIMESTAMPTZ DEFAULT NOW(),
                     state group_member_state NOT NULL DEFAULT 'pending_invite', 
                     -- fkeys
