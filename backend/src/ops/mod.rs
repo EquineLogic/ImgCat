@@ -7,9 +7,9 @@ use argon2::{
     password_hash::{PasswordHash, SaltString, rand_core::OsRng},
 };
 use aws_sdk_s3::types::{Delete, ObjectIdentifier};
-use kittycat::perms::check_patch_changes_str;
+use kittycat::perms::{check_patch_changes_str, has_perm_str};
 use models::*;
-use sqlx::Row;
+use sqlx::{Row, Transaction};
 use std::error::Error;
 use uuid::Uuid;
 
@@ -95,10 +95,10 @@ pub enum OpArgs {
         name: String,
     },
     CreateGroupSession { group_id: Uuid },
-    ListGroups {},
+    ListGroupMembers {},
     AcceptGroupInvite { group_id: Uuid },
     DenyGroupInvite { group_id: Uuid },
-    InviteGroupMember { target_id: Uuid, perms: Vec<String> } // must be from group session
+    InviteGroupMember { group_id: Uuid, target_id: Uuid, perms: Vec<String> },
 }
 
 // ── Outputs ─────────────────────────────────────────────────────────────
@@ -162,7 +162,7 @@ pub enum OpError {
     ValidationFailed { reason: String },
     BadRequest { reason: String },
     TooManyItems,
-    Unauthorized { reason: String },
+    Unauthorized { reason: &'static str },
     UserOnlyOp,
     GroupOnlyOp
 }
@@ -215,25 +215,45 @@ fn salt_and_hash_password(password: &str) -> String {
 
 // ── Execution ───────────────────────────────────────────────────────────
 
+#[allow(dead_code)]
+struct GetPerms {
+    underlying_user_id: Uuid,
+    perms: Vec<String>
+}
+
 impl AppData {
     /// Returns underlying user id and access level of current context
-    async fn get_perms(&self, ctx: &OpCtx) -> Result<(Uuid, Vec<String>), OpError> {
+    async fn get_perms<'c>(&self, ctx: &OpCtx, tx: &mut Transaction<'c, sqlx::Postgres>) -> Result<GetPerms, OpError> {
         let (group_id, active_membership_id) = match &ctx {
             OpCtx::Group { id, active_membership_id, .. } => (*id, *active_membership_id),
-            OpCtx::User { id, .. }  => return Ok((*id, vec!["global.*".to_string()]))
+            OpCtx::User { id, .. }  => return Ok(GetPerms { underlying_user_id: *id, perms: vec!["global.*".to_string()] })
         };
 
-        let Some(res) = sqlx::query("SELECT user_id, perms FROM group_members WHERE id = $1 AND group_id = $2")
+        let Some(res) = sqlx::query("SELECT user_id, perms FROM group_members WHERE id = $1 AND group_id = $2 AND state = 'accepted'")
         .bind(active_membership_id)
         .bind(group_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut **tx)
         .await? else {
             return Err(OpError::EntityNotFound { reason: "Connected user is not a member of the group" });
         };
 
         let user_id: Uuid = res.try_get(0)?;
         let perms: Vec<String> = res.try_get(1)?;
-        Ok((user_id, perms))
+        Ok(GetPerms { underlying_user_id: user_id, perms })
+    }
+
+    /// Returns underlying user id and access level within the group
+    async fn get_perms_of_group<'c>(&self, user_id: Uuid, group_id: Uuid, tx: &mut Transaction<'c, sqlx::Postgres>) -> Result<GetPerms, OpError> {
+        let Some(res) = sqlx::query("SELECT perms FROM group_members WHERE user_id = $1 AND group_id = $2 AND state = 'accepted'")
+        .bind(user_id)
+        .bind(group_id)
+        .fetch_optional(&mut **tx)
+        .await? else {
+            return Err(OpError::EntityNotFound { reason: "Connected user is not a member of the group" });
+        };
+
+        let perms: Vec<String> = res.try_get(0)?;
+        Ok(GetPerms { underlying_user_id: user_id, perms })
     }
 
     pub async fn exec_op(&self, op: OpArgs, user_id: Option<OpCtx>) -> Result<OpSuccess, OpError> {
@@ -832,7 +852,7 @@ impl AppData {
                 })
             }
 
-            OpArgs::ListGroups {  } => {
+            OpArgs::ListGroupMembers {  } => {
                 let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
@@ -856,8 +876,8 @@ impl AppData {
                             gm.state, 
                             gm.created_at
                         FROM group_members gm
-                        LEFT JOIN users u_group ON gm.group_id = u_group.id AND gm.group_type = u_group.user_type
-                        LEFT JOIN users u ON gm.sender_id = u.id AND gm.sender_type = u.user_type
+                        JOIN users u_group ON gm.group_id = u_group.id AND gm.group_type = u_group.user_type
+                        JOIN users u ON gm.sender_id = u.id AND gm.sender_type = u.user_type
                         WHERE gm.user_id = $1
                         ORDER BY gm.created_at DESC
                     "
@@ -961,16 +981,21 @@ impl AppData {
                 Ok(OpSuccess::GroupInviteDenied)
             }
 
-            OpArgs::InviteGroupMember { target_id, perms } => {
+            OpArgs::InviteGroupMember { group_id, target_id, perms } => {
                 let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
-                if !uid.is_group() {
-                    return Err(OpError::GroupOnlyOp);
+                if !uid.is_user() {
+                    return Err(OpError::UserOnlyOp)
                 }
-                let group_id = uid.account_id();
-                let (creator_user_id, creator_perms) = self.get_perms(&uid).await?;
-                check_patch_changes_str(&creator_perms, &[], &perms)?;
+
+                let mut tx = self.pool.begin().await?;
+
+                let creator_gp = self.get_perms_of_group(uid.account_id(), group_id, &mut tx).await?;
+                if !has_perm_str(&creator_gp.perms, "group_members.invite") {
+                    return Err(OpError::Unauthorized { reason: "You do not have permission to invite group members!" })
+                }
+                check_patch_changes_str(&creator_gp.perms, &[], &perms)?;
 
                 sqlx::query(
                     "
@@ -992,12 +1017,12 @@ impl AppData {
                 )
                 .bind(group_id)
                 .bind(target_id)
-                .bind(creator_user_id)
+                .bind(uid.account_id())
                 .bind(perms)
                 .execute(&self.pool)
                 .await?;
 
-                self.notify.send_to(target_id, SharingEvent::NewGroupInvite { group_id: uid.account_id() });
+                self.notify.send_to(target_id, SharingEvent::NewGroupInvite { group_id });
 
                 Ok(OpSuccess::GroupInviteCreated)
             }
@@ -1010,7 +1035,7 @@ impl AppData {
                     .fetch_one(&mut *tx)
                     .await
                     .map_err(|_| OpError::Unauthorized {
-                        reason: "Invalid username or password".into(),
+                        reason: "Invalid username or password",
                     })?;
 
                 let found_user_id: Uuid = row.get("id");
@@ -1024,7 +1049,7 @@ impl AppData {
                 argon2
                     .verify_password(password.as_bytes(), &parsed_hash)
                     .map_err(|_| OpError::Unauthorized {
-                        reason: "Invalid username or password".into(),
+                        reason: "Invalid username or password"
                     })?;
 
                 let session = models::auth::Session::new(&mut *tx, found_user_id, username, None)
@@ -1053,7 +1078,7 @@ impl AppData {
 
                 if row.rows_affected() == 0 {
                     return Err(OpError::Unauthorized {
-                        reason: "No active session".into(),
+                        reason: "No active session"
                     });
                 }
 
@@ -1113,7 +1138,7 @@ impl AppData {
                 argon2
                     .verify_password(curr_password.as_bytes(), &parsed_hash)
                     .map_err(|_| OpError::Unauthorized {
-                        reason: "Incorrect password".into(),
+                        reason: "Incorrect password"
                     })?;
 
                 let new_hash = salt_and_hash_password(&new_password);
