@@ -9,8 +9,8 @@ use argon2::{
 use aws_sdk_s3::types::{Delete, ObjectIdentifier};
 use kittycat::perms::{check_patch_changes_str, has_perm_str};
 use models::*;
-use sqlx::{Row, Transaction};
-use std::error::Error;
+use sqlx::Row;
+use std::fmt::Display;
 use uuid::Uuid;
 
 // ── Inputs ──────────────────────────────────────────────────────────────
@@ -95,10 +95,51 @@ pub enum OpArgs {
         name: String,
     },
     CreateGroupSession { group_id: Uuid },
-    ListGroupMembers {},
+    ListGroups {},
     AcceptGroupInvite { group_id: Uuid },
     DenyGroupInvite { group_id: Uuid },
-    InviteGroupMember { group_id: Uuid, target_id: Uuid, perms: Vec<String> },
+    InviteGroupMember { target_id: Uuid, perms: Vec<String> },
+}
+
+impl OpArgs {
+    /// What perms we need to check for every op
+    const fn needed_perm(&self) -> Option<&'static str> {
+        match self {
+            // --- Filesystem ---
+            Self::CreateFolder { .. }     => Some("fs.create_folder"),
+            Self::ListFolder { .. }       => Some("fs.list_folder"),
+            Self::DeleteFolder { .. }     => Some("fs.delete_folder"),
+            Self::RenameFolder { .. }     => Some("fs.rename_folder"),
+            Self::UploadFile { .. }       => Some("fs.upload_file"),
+            Self::ListFiles { .. }        => Some("fs.list_files"),
+            Self::RenameFile { .. }       => Some("fs.rename_file"),
+            Self::DeleteFile { .. }       => Some("fs.delete_file"),
+            Self::Reorder { .. }          => Some("fs.reorder_entries"),
+            Self::MoveEntry { .. }        => Some("fs.move_entry"),
+            Self::ListTrash               => Some("fs.list_trash"),
+            Self::RestoreEntry { .. }     => Some("fs.restore_entry"),
+            Self::DeleteTrashEntry { .. } => Some("fs.delete_trash_entry"),
+
+            // --- Auth ---
+            // Public entry points
+            Self::CreateUser { .. }           => None,
+            Self::CreateLoginSession { .. }   => None,
+            
+            Self::DeleteSession { .. }        => Some("auth.delete_session"),
+            Self::ChangeUsername { .. }       => Some("auth.change_username"),
+            Self::ChangePassword { .. }       => None, // user-only op
+            Self::GetTrashRetention           => Some("auth.get_trash_retention"),
+            Self::SetTrashRetention { .. }    => Some("auth.set_trash_retention"),
+
+            // --- Groups ---
+            Self::CreateGroup { .. }          => None, // user-only op
+            Self::CreateGroupSession { .. }   => None, // user-only op
+            Self::ListGroups { .. }           => None, // user-only op
+            Self::AcceptGroupInvite { .. }    => None, // user-only op
+            Self::DenyGroupInvite { .. }      => None, // user-only op
+            Self::InviteGroupMember { .. }    => Some("group_members.invite"),
+        }
+    }
 }
 
 // ── Outputs ─────────────────────────────────────────────────────────────
@@ -163,13 +204,14 @@ pub enum OpError {
     BadRequest { reason: String },
     TooManyItems,
     Unauthorized { reason: &'static str },
+    OpNeedsPerms { perm: &'static str },
     UserOnlyOp,
     GroupOnlyOp
 }
 
-impl<T: Error + Send + Sync + 'static> From<T> for OpError {
+impl<T: Display + Send + Sync + 'static> From<T> for OpError {
     fn from(value: T) -> Self {
-        Self::Generic(value.into())
+        Self::Generic(value.to_string().into())
     }
 }
 
@@ -223,7 +265,7 @@ struct GetPerms {
 
 impl AppData {
     /// Returns underlying user id and access level of current context
-    async fn get_perms<'c>(&self, ctx: &OpCtx, tx: &mut Transaction<'c, sqlx::Postgres>) -> Result<GetPerms, OpError> {
+    async fn get_perms(&self, ctx: &OpCtx) -> Result<GetPerms, OpError> {
         let (group_id, active_membership_id) = match &ctx {
             OpCtx::Group { id, active_membership_id, .. } => (*id, *active_membership_id),
             OpCtx::User { id, .. }  => return Ok(GetPerms { underlying_user_id: *id, perms: vec!["global.*".to_string()] })
@@ -232,7 +274,7 @@ impl AppData {
         let Some(res) = sqlx::query("SELECT user_id, perms FROM group_members WHERE id = $1 AND group_id = $2 AND state = 'accepted'")
         .bind(active_membership_id)
         .bind(group_id)
-        .fetch_optional(&mut **tx)
+        .fetch_optional(&self.pool)
         .await? else {
             return Err(OpError::EntityNotFound { reason: "Connected user is not a member of the group" });
         };
@@ -242,21 +284,22 @@ impl AppData {
         Ok(GetPerms { underlying_user_id: user_id, perms })
     }
 
-    /// Returns underlying user id and access level within the group
-    async fn get_perms_of_group<'c>(&self, user_id: Uuid, group_id: Uuid, tx: &mut Transaction<'c, sqlx::Postgres>) -> Result<GetPerms, OpError> {
-        let Some(res) = sqlx::query("SELECT perms FROM group_members WHERE user_id = $1 AND group_id = $2 AND state = 'accepted'")
-        .bind(user_id)
-        .bind(group_id)
-        .fetch_optional(&mut **tx)
-        .await? else {
-            return Err(OpError::EntityNotFound { reason: "Connected user is not a member of the group" });
-        };
-
-        let perms: Vec<String> = res.try_get(0)?;
-        Ok(GetPerms { underlying_user_id: user_id, perms })
-    }
-
     pub async fn exec_op(&self, op: OpArgs, user_id: Option<OpCtx>) -> Result<OpSuccess, OpError> {
+        let mut user_perms = None;
+
+        if let Some(np) = op.needed_perm() {
+            let Some(ref uid) = user_id else {
+                return Err(OpError::UserNotLoggedIn);
+            };
+            let perms = self.get_perms(uid).await?;
+
+            if !has_perm_str(&perms.perms, np) {
+                return Err(OpError::OpNeedsPerms { perm: np })
+            }
+
+            user_perms = Some(perms)
+        }
+
         match op {
             // ─── Filesystem ─────────────────────────────────────────
             OpArgs::CreateFolder { name, parent_id } => {
@@ -852,7 +895,7 @@ impl AppData {
                 })
             }
 
-            OpArgs::ListGroupMembers {  } => {
+            OpArgs::ListGroups {  } => {
                 let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
@@ -981,21 +1024,20 @@ impl AppData {
                 Ok(OpSuccess::GroupInviteDenied)
             }
 
-            OpArgs::InviteGroupMember { group_id, target_id, perms } => {
-                let Some(uid) = user_id else {
+            OpArgs::InviteGroupMember { target_id, perms } => {
+                let Some(gid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
-                if !uid.is_user() {
-                    return Err(OpError::UserOnlyOp)
+                if !gid.is_group() {
+                    return Err(OpError::GroupOnlyOp)
                 }
+                let group_id = gid.account_id();
 
-                let mut tx = self.pool.begin().await?;
+                let Some(gp) = user_perms else {
+                    return Err("internal error: no user_perms found".to_string().into())
+                };
 
-                let creator_gp = self.get_perms_of_group(uid.account_id(), group_id, &mut tx).await?;
-                if !has_perm_str(&creator_gp.perms, "group_members.invite") {
-                    return Err(OpError::Unauthorized { reason: "You do not have permission to invite group members!" })
-                }
-                check_patch_changes_str(&creator_gp.perms, &[], &perms)?;
+                check_patch_changes_str(&gp.perms, &[], &perms)?;
 
                 sqlx::query(
                     "
@@ -1017,7 +1059,7 @@ impl AppData {
                 )
                 .bind(group_id)
                 .bind(target_id)
-                .bind(uid.account_id())
+                .bind(gp.underlying_user_id)
                 .bind(perms)
                 .execute(&self.pool)
                 .await?;

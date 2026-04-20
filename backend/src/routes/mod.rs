@@ -86,6 +86,7 @@ impl IntoResponse for OpError {
             Self::Unauthorized { reason } => (StatusCode::UNAUTHORIZED, reason).into_response(),
             Self::UserOnlyOp => (StatusCode::BAD_REQUEST, "Operation can only be performed by users (not groups!)").into_response(),
             Self::GroupOnlyOp => (StatusCode::BAD_REQUEST, "Operation can only be performed by groups (not users!)").into_response(),
+            Self::OpNeedsPerms { perm } => (StatusCode::FORBIDDEN, format!("This operation needs {perm}!")).into_response(),
         }
     }
 }
