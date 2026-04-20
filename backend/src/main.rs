@@ -2,6 +2,7 @@ use backend::{AppData, config, routes};
 
 use axum::{
     Router,
+    extract::DefaultBodyLimit,
     http::{HeaderValue, Method},
     routing::{get, post},
 };
