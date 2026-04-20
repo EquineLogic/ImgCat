@@ -62,17 +62,16 @@ impl Session {
     const TOKEN_LENGTH: usize = 256;
     const EXPIRY: Duration = Duration::from_secs(60 * 60 * 24);
 
-    pub async fn new<'c, E>(executor: E, user_id: Uuid, username: String, active_membership_id: Option<Uuid>) -> Result<Self, crate::Error>
+    pub async fn new<'c, E>(executor: E, user_id: Uuid, username: String) -> Result<Self, crate::Error>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
         let token: String = Alphanumeric.sample_string(&mut rng(), Self::TOKEN_LENGTH);
 
-        sqlx::query("INSERT INTO sessions (user_id, token, expires_at, active_membership_id) VALUES ($1, $2, $3, $4)")
+        sqlx::query("INSERT INTO sessions (user_id, token, expires_at) VALUES ($1, $2, $3)")
             .bind(user_id)
             .bind(&token)
             .bind(Utc::now() + Self::EXPIRY)
-            .bind(active_membership_id)
             .execute(executor)
             .await
             .map_err(|e| format!("Failed to create session: {e}"))?;
@@ -87,7 +86,13 @@ pub struct LoggedInUser {
     pub user_type: String,
     pub username: String,
     pub session_id: Uuid,
-    pub active_membership_id: Option<Uuid>
+    pub group: Option<(Uuid, String)>
+}
+
+impl LoggedInUser {
+    fn get_group_id(parts: &mut axum::http::request::Parts) -> Option<Uuid> {
+        parts.headers.get("X-Group")?.to_str().ok()?.parse().ok() // take x-group, convert to str if possible and parse to uuid if possible
+    }
 }
 
 impl FromRequestParts<AppData> for LoggedInUser {
@@ -117,37 +122,58 @@ impl FromRequestParts<AppData> for LoggedInUser {
             username: String,
             user_type: String,
             session_id: Uuid,
-            active_membership_id: Option<Uuid>
         }
 
         let row: Row = sqlx::query_as(
-                "SELECT u.id, u.user_type, u.username, s.id AS session_id, s.active_membership_id FROM sessions s JOIN users u ON s.user_id = u.id WHERE s.token = $1 AND s.expires_at > NOW()"
+            "SELECT u.id, u.user_type, u.username, s.id AS session_id FROM sessions s JOIN users u ON s.user_id = u.id WHERE s.token = $1 AND s.expires_at > NOW()"
+        )
+        .bind(&session_token)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                e.to_string(),
             )
-            .bind(&session_token)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    e.to_string(),
-                )
-            })?
-            .ok_or_else(|| (StatusCode::UNAUTHORIZED, "Invalid authorization provided".to_string()))?;
+        })?
+        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "Invalid authorization provided".to_string()))?;
 
-        Ok(LoggedInUser { user_id: row.id, username: row.username, user_type: row.user_type, session_id: row.session_id, active_membership_id: row.active_membership_id })
+        let group_id = Self::get_group_id(parts);
+        let group_data = match group_id {
+            Some(id) => {
+                #[derive(sqlx::FromRow)]
+                struct GroupData {
+                    username: String
+                }
+                let row: GroupData = sqlx::query_as(
+                    "SELECT u.username FROM group_members m 
+            JOIN users u ON u.id = m.group_id 
+            WHERE m.user_id = $1 AND m.group_id = $2 AND m.state = 'accepted'"
+                )
+                .bind(&id)
+                .fetch_optional(&state.pool)
+                .await
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        e.to_string(),
+                    )
+                })?
+                .ok_or_else(|| (StatusCode::UNAUTHORIZED, "Could not find selected group in users group list".to_string()))?;
+
+                Some((id, row.username))
+            },
+            None => None,
+        };
+
+        Ok(LoggedInUser { user_id: row.id, username: row.username, user_type: row.user_type, session_id: row.session_id, group: group_data })
     }
 }
 
 impl LoggedInUser {
     pub fn into_ctx(self) -> Result<OpCtx, OpError> {
         match self.user_type.as_str() {
-            "user" => Ok(OpCtx::User { id: self.user_id, username: self.username }),
-            "group" => {
-                let Some(active_membership_id) = self.active_membership_id else {
-                    return Err(OpError::Generic("Session is a group session but no active_membership_id found".into()));
-                };
-                Ok(OpCtx::Group { id: self.user_id, username: self.username, active_membership_id })
-            },
+            "user" => Ok(OpCtx::User { id: self.user_id, username: self.username, group: self.group }),
             _ => Err(OpError::Generic("Invalid user type provided".into()))
         }
     }
@@ -190,7 +216,6 @@ pub struct SetTrashRetention {
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 pub enum SessionType {
     Login,
-    GroupSession
 }
 
 #[derive(Debug, Serialize, Deserialize, sqlx::Type)]

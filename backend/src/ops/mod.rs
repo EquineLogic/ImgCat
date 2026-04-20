@@ -94,7 +94,6 @@ pub enum OpArgs {
         username: String,
         name: String,
     },
-    CreateGroupSession { group_id: Uuid },
     ListGroups {},
     AcceptGroupInvite { group_id: Uuid },
     DenyGroupInvite { group_id: Uuid },
@@ -133,7 +132,6 @@ impl OpArgs {
 
             // --- Groups ---
             Self::CreateGroup { .. }          => None, // user-only op
-            Self::CreateGroupSession { .. }   => None, // user-only op
             Self::ListGroups { .. }           => None, // user-only op
             Self::AcceptGroupInvite { .. }    => None, // user-only op
             Self::DenyGroupInvite { .. }      => None, // user-only op
@@ -148,25 +146,15 @@ impl OpArgs {
 #[serde(tag = "op")]
 pub enum OpSuccess {
     // Filesystem
-    FolderCreated,
     Folders {
         folders: Vec<Folder>,
     },
-    FolderDeleted,
-    FolderRenamed,
-    FileUploaded,
     Files {
         files: Vec<FileEntry>,
     },
-    FileRenamed,
-    FileDeleted,
-    Reordered,
-    EntryMoved,
     TrashItems {
         items: Vec<TrashEntry>,
     },
-    EntryRestored,
-    TrashEntryDeleted,
 
     // Auth
     CreatedSession {
@@ -178,19 +166,20 @@ pub enum OpSuccess {
         id: Uuid,
         token_type: SessionType,
     },
-    UsernameChanged,
-    PasswordChanged,
     TrashRetention {
         days: i32,
     },
-    TrashRetentionSet,
 
     // Groups
     GroupMembers {
         group_members: Vec<GroupMember>
     },
-    GroupInviteDenied,
-    GroupInviteCreated
+    CreatedGroup {
+        group_id: Uuid
+    },
+
+    // Ok
+    Ok
 }
 
 // ── Errors ──────────────────────────────────────────────────────────────
@@ -217,28 +206,52 @@ impl<T: Display + Send + Sync + 'static> From<T> for OpError {
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub enum OpCtx {
-    User { id: Uuid, username: String },
-    Group { id: Uuid, username: String, active_membership_id: Uuid }
+    User { id: Uuid, username: String, group: Option<(Uuid, String)> },
 }
 
 impl OpCtx {
     pub fn account_id(&self) -> Uuid {
         match self {
-            Self::User { id: u, .. } | Self::Group { id: u, .. } => *u,
+            Self::User { id: user_id, group, .. } => {
+                if let Some((group_id, _)) = group {
+                    *group_id
+                } else {
+                    *user_id
+                }
+            },
+        }
+    }
+
+    /// Returns the real account id (like account_id but returns user id instead of group id if the user is executing in a group subcontext)
+    pub fn real_account_id(&self) -> Uuid {
+        match self {
+            Self::User { id: user_id, .. } => {
+                *user_id
+            },
         }
     }
 
     pub fn is_user(&self) -> bool {
-        matches!(self, Self::User { .. })
+        match self {
+            Self::User { group, .. } => group.is_none()
+        }
     }
 
     pub fn is_group(&self) -> bool {
-        matches!(self, Self::Group { .. })
+        match self {
+            Self::User { group, .. } => group.is_some()
+        }
     }
 
     pub fn username(&self) -> String {
         match self {
-            Self::User { username: u, .. } | Self::Group { username: u, .. } => u.to_string(),
+            Self::User { username: user_username, group, .. } => {
+                if let Some((_, group_username)) = group {
+                    group_username.to_string()
+                } else {
+                    user_username.to_string()
+                }
+            },
         }
     }
 }
@@ -259,29 +272,30 @@ fn salt_and_hash_password(password: &str) -> String {
 
 #[allow(dead_code)]
 struct GetPerms {
-    underlying_user_id: Uuid,
     perms: Vec<String>
 }
 
 impl AppData {
-    /// Returns underlying user id and access level of current context
+    /// Returns underlying user id and access level of current context, taking into account groups etc.
     async fn get_perms(&self, ctx: &OpCtx) -> Result<GetPerms, OpError> {
-        let (group_id, active_membership_id) = match &ctx {
-            OpCtx::Group { id, active_membership_id, .. } => (*id, *active_membership_id),
-            OpCtx::User { id, .. }  => return Ok(GetPerms { underlying_user_id: *id, perms: vec!["global.*".to_string()] })
-        };
+        match ctx {
+            OpCtx::User { id: user_id, group, .. } => {
+                let Some((group_id, _)) = group else {
+                    return Ok(GetPerms { perms: vec!["global.*".to_string()] })
+                };
 
-        let Some(res) = sqlx::query("SELECT user_id, perms FROM group_members WHERE id = $1 AND group_id = $2 AND state = 'accepted'")
-        .bind(active_membership_id)
-        .bind(group_id)
-        .fetch_optional(&self.pool)
-        .await? else {
-            return Err(OpError::EntityNotFound { reason: "Connected user is not a member of the group" });
-        };
+                let Some(res) = sqlx::query("SELECT perms FROM group_members WHERE user_id = $1 AND group_id = $2 AND state = 'accepted'")
+                .bind(user_id)
+                .bind(group_id)
+                .fetch_optional(&self.pool)
+                .await? else {
+                    return Err(OpError::EntityNotFound { reason: "Connected user is not an accepted member of the group" });
+                };
 
-        let user_id: Uuid = res.try_get(0)?;
-        let perms: Vec<String> = res.try_get(1)?;
-        Ok(GetPerms { underlying_user_id: user_id, perms })
+                let perms: Vec<String> = res.try_get(0)?;
+                Ok(GetPerms { perms })
+            }
+        }
     }
 
     pub async fn exec_op(&self, op: OpArgs, user_id: Option<OpCtx>) -> Result<OpSuccess, OpError> {
@@ -325,7 +339,7 @@ impl AppData {
                     });
                 }
 
-                Ok(OpSuccess::FolderCreated)
+                Ok(OpSuccess::Ok)
             }
 
             OpArgs::ListFolder { parent_id } => {
@@ -369,7 +383,7 @@ impl AppData {
                     });
                 }
 
-                Ok(OpSuccess::FolderDeleted)
+                Ok(OpSuccess::Ok)
             }
 
             OpArgs::RenameFolder { id, name } => {
@@ -392,7 +406,7 @@ impl AppData {
                     });
                 }
 
-                Ok(OpSuccess::FolderRenamed)
+                Ok(OpSuccess::Ok)
             }
 
             OpArgs::UploadFile {
@@ -451,7 +465,7 @@ impl AppData {
                 }
 
                 tx.commit().await?;
-                Ok(OpSuccess::FileUploaded)
+                Ok(OpSuccess::Ok)
             }
 
             OpArgs::ListFiles { parent_id } => {
@@ -520,7 +534,7 @@ impl AppData {
                     });
                 }
 
-                Ok(OpSuccess::FileRenamed)
+                Ok(OpSuccess::Ok)
             }
 
             OpArgs::DeleteFile { id } => {
@@ -543,7 +557,7 @@ impl AppData {
                     });
                 }
 
-                Ok(OpSuccess::FileDeleted)
+                Ok(OpSuccess::Ok)
             }
 
             OpArgs::Reorder { ids } => {
@@ -565,7 +579,7 @@ impl AppData {
                 }
 
                 tx.commit().await?;
-                Ok(OpSuccess::Reordered)
+                Ok(OpSuccess::Ok)
             }
 
             OpArgs::MoveEntry { id, parent_id } => {
@@ -611,7 +625,7 @@ impl AppData {
                     });
                 }
 
-                Ok(OpSuccess::EntryMoved)
+                Ok(OpSuccess::Ok)
             }
 
             OpArgs::ListTrash => {
@@ -695,7 +709,7 @@ impl AppData {
                     });
                 }
 
-                Ok(OpSuccess::EntryRestored)
+                Ok(OpSuccess::Ok)
             }
 
             OpArgs::DeleteTrashEntry { id } => {
@@ -776,7 +790,7 @@ impl AppData {
                     }
                 }
 
-                Ok(OpSuccess::TrashEntryDeleted)
+                Ok(OpSuccess::Ok)
             }
 
             // ─── Auth ───────────────────────────────────────────────
@@ -812,7 +826,7 @@ impl AppData {
 
                 let new_user_id: Uuid = row.get("id");
 
-                let session = models::auth::Session::new(&mut *tx, new_user_id, username, None)
+                let session = models::auth::Session::new(&mut *tx, new_user_id, username)
                     .await
                     .map_err(|e| OpError::Generic(e))?;
 
@@ -852,10 +866,10 @@ impl AppData {
                     });
                 };
 
-                let new_user_id: Uuid = row.get("id");
+                let group_id: Uuid = row.try_get(0)?;
 
                 // Add user to group members
-                let row = sqlx::query(
+                sqlx::query(
                     "
                     INSERT INTO group_members (
                         group_id, 
@@ -871,28 +885,17 @@ impl AppData {
                         $3,        -- Owner gets full perms (global.*)
                         'accepted' -- No invite needed for the creator
                     )
-                    RETURNING id
                     "
                 )
-                .bind(&new_user_id)
+                .bind(&group_id)
                 .bind(&uid.account_id())
                 .bind(&["global.*"])
-                .fetch_one(&mut *tx)
+                .execute(&mut *tx)
                 .await?;
-
-                let membership_id: Uuid = row.get("id");
-
-                let session = models::auth::Session::new(&mut *tx, new_user_id, username, Some(membership_id))
-                    .await
-                    .map_err(|e| OpError::Generic(e))?;
 
                 tx.commit().await?;
 
-                Ok(OpSuccess::CreatedSession {
-                    username: session.username,
-                    token: session.token,
-                    token_type: SessionType::GroupSession,
-                })
+                Ok(OpSuccess::CreatedGroup { group_id })
             }
 
             OpArgs::ListGroups {  } => {
@@ -932,39 +935,6 @@ impl AppData {
                 Ok(OpSuccess::GroupMembers { group_members })
             }
 
-            OpArgs::CreateGroupSession { group_id } => {
-                let Some(uid) = user_id else {
-                    return Err(OpError::UserNotLoggedIn);
-                };
-                if !uid.is_user() {
-                    return Err(OpError::UserOnlyOp)
-                }
-
-                let mut tx = self.pool.begin().await?;
-
-                let Some(id) = sqlx::query("SELECT id FROM group_members WHERE user_id = $1 AND state = 'accepted' AND group_id = $2")
-                .bind(uid.account_id())
-                .bind(group_id)
-                .fetch_optional(&mut *tx)
-                .await? else {
-                    return Err(OpError::EntityNotFound { reason: "User is not a member of the group they want to start a session for" });
-                };
-
-                let membership_id: Uuid = id.get(0);
-
-                let session = Session::new(&mut *tx, group_id, uid.username(), Some(membership_id))
-                    .await
-                    .map_err(|e| OpError::Generic(e))?;
-
-                tx.commit().await?;
-
-                Ok(OpSuccess::CreatedSession {
-                    username: session.username,
-                    token: session.token,
-                    token_type: SessionType::GroupSession,
-                })
-            }
-
             OpArgs::AcceptGroupInvite { group_id } => {
                 let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
@@ -975,7 +945,7 @@ impl AppData {
 
                 let mut tx = self.pool.begin().await?;
 
-                let Some(id) = sqlx::query("UPDATE group_members SET state = 'accepted' WHERE user_id = $1 AND state = 'pending_invite' AND group_id = $2 RETURNING id, sender_id")
+                let Some(id) = sqlx::query("UPDATE group_members SET state = 'accepted' WHERE user_id = $1 AND state = 'pending_invite' AND group_id = $2 RETURNING sender_id")
                 .bind(uid.account_id())
                 .bind(group_id)
                 .fetch_optional(&mut *tx)
@@ -983,22 +953,13 @@ impl AppData {
                     return Err(OpError::EntityNotFound { reason: "User does not have a pending invite for the requested group" });
                 };
 
-                let membership_id: Uuid = id.get(0);
-                let sender_id: Uuid = id.get(1);
-
-                let session = models::auth::Session::new(&mut *tx, group_id, uid.username(), Some(membership_id))
-                    .await
-                    .map_err(|e| OpError::Generic(e))?;
+                let sender_id = id.try_get(0)?;
 
                 tx.commit().await?;
 
                 self.notify.send_to(sender_id, SharingEvent::AcceptedGroupInvite { group_id, user_id: uid.account_id() });
 
-                Ok(OpSuccess::CreatedSession {
-                    username: session.username,
-                    token: session.token,
-                    token_type: SessionType::GroupSession,
-                })
+                Ok(OpSuccess::Ok)
             }
 
             OpArgs::DenyGroupInvite { group_id } => {
@@ -1021,7 +982,7 @@ impl AppData {
 
                 self.notify.send_to(sender_id, SharingEvent::DeniedGroupInvite { group_id, user_id: uid.account_id() });
 
-                Ok(OpSuccess::GroupInviteDenied)
+                Ok(OpSuccess::Ok)
             }
 
             OpArgs::InviteGroupMember { target_id, perms } => {
@@ -1031,7 +992,10 @@ impl AppData {
                 if !gid.is_group() {
                     return Err(OpError::GroupOnlyOp)
                 }
+
+                let sender_user_id = gid.real_account_id();
                 let group_id = gid.account_id();
+                assert!(sender_user_id != group_id);
 
                 let Some(gp) = user_perms else {
                     return Err("internal error: no user_perms found".to_string().into())
@@ -1059,14 +1023,14 @@ impl AppData {
                 )
                 .bind(group_id)
                 .bind(target_id)
-                .bind(gp.underlying_user_id)
+                .bind(sender_user_id)
                 .bind(perms)
                 .execute(&self.pool)
                 .await?;
 
                 self.notify.send_to(target_id, SharingEvent::NewGroupInvite { group_id });
 
-                Ok(OpSuccess::GroupInviteCreated)
+                Ok(OpSuccess::Ok)
             }
 
             OpArgs::CreateLoginSession { username, password } => {
@@ -1094,7 +1058,7 @@ impl AppData {
                         reason: "Invalid username or password"
                     })?;
 
-                let session = models::auth::Session::new(&mut *tx, found_user_id, username, None)
+                let session = models::auth::Session::new(&mut *tx, found_user_id, username)
                     .await
                     .map_err(|e| OpError::Generic(e))?;
 
@@ -1151,7 +1115,7 @@ impl AppData {
                         OpError::Generic(e.into())
                     })?;
 
-                Ok(OpSuccess::UsernameChanged)
+                Ok(OpSuccess::Ok)
             }
 
             OpArgs::ChangePassword {
@@ -1191,7 +1155,7 @@ impl AppData {
                     .execute(&self.pool)
                     .await?;
 
-                Ok(OpSuccess::PasswordChanged)
+                Ok(OpSuccess::Ok)
             }
 
             OpArgs::GetTrashRetention => {
@@ -1226,7 +1190,7 @@ impl AppData {
                     .execute(&self.pool)
                     .await?;
 
-                Ok(OpSuccess::TrashRetentionSet)
+                Ok(OpSuccess::Ok)
             }
         }
     }

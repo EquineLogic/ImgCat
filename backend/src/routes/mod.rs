@@ -14,19 +14,9 @@ impl IntoResponse for OpSuccess {
     fn into_response(self) -> axum::response::Response {
         match self {
             // Filesystem
-            Self::FolderCreated => (StatusCode::CREATED, "The folder has been created").into_response(),
             Self::Folders { folders } => (StatusCode::OK, Json(folders)).into_response(),
-            Self::FolderDeleted => StatusCode::NO_CONTENT.into_response(),
-            Self::FolderRenamed => StatusCode::NO_CONTENT.into_response(),
-            Self::FileUploaded => StatusCode::CREATED.into_response(),
             Self::Files { files } => (StatusCode::OK, Json(files)).into_response(),
-            Self::FileRenamed => StatusCode::NO_CONTENT.into_response(),
-            Self::FileDeleted => StatusCode::NO_CONTENT.into_response(),
-            Self::Reordered => StatusCode::NO_CONTENT.into_response(),
-            Self::EntryMoved => StatusCode::NO_CONTENT.into_response(),
             Self::TrashItems { items } => (StatusCode::OK, Json(items)).into_response(),
-            Self::EntryRestored => StatusCode::NO_CONTENT.into_response(),
-            Self::TrashEntryDeleted => StatusCode::NO_CONTENT.into_response(),
 
             // Sharing
             Self::CreatedSession { username, token, token_type } => {
@@ -57,14 +47,12 @@ impl IntoResponse for OpSuccess {
                 }
                 resp
             },
-            Self::UsernameChanged => StatusCode::OK.into_response(),
-            Self::PasswordChanged => StatusCode::OK.into_response(),
             Self::TrashRetention { days } => {
                 (StatusCode::OK, Json(serde_json::json!({ "days": days }))).into_response()
             }
-            Self::TrashRetentionSet => StatusCode::OK.into_response(),
             Self::GroupMembers { group_members } => (StatusCode::OK, Json(group_members)).into_response(),
-            Self::GroupInviteDenied | Self::GroupInviteCreated => StatusCode::OK.into_response(),
+            Self::CreatedGroup { group_id } => (StatusCode::OK, Json(serde_json::json!({ "group_id": group_id }))).into_response(),
+            Self::Ok => StatusCode::NO_CONTENT.into_response(),
         }
     }
 }
