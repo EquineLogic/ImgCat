@@ -65,7 +65,8 @@ async fn main() {
             get(routes::auth::get_trash_retention).post(routes::auth::set_trash_retention),
         )
         .with_state(state)
-        .layer(cors);
+        .layer(cors)
+        .layer(DefaultBodyLimit::max(100 * 1024 * 1024)); // 100MB limit
 
     let listener = tokio::net::TcpListener::bind(&cfg.bind_addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
