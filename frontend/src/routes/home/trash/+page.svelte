@@ -4,6 +4,7 @@
 	import ImageCard from '$lib/components/ImageCard.svelte';
 	import FileGrid from '$lib/components/FileGrid.svelte';
 	import Modal from '$lib/components/Modal.svelte';
+	import ContextMenu from '$lib/components/ContextMenu.svelte';
 	import { API_BASE } from '$lib/config';
 
 	type TrashEntry = {
@@ -70,6 +71,37 @@
 		await load();
 	}
 
+	let menuOpen = $state(false);
+	let menuX = $state(0);
+	let menuY = $state(0);
+	let menuTarget = $state<TrashEntry | null>(null);
+
+	const menuItems = $derived(
+		menuTarget
+			? [
+					{
+						label: 'Restore',
+						icon: 'folder-open',
+						action: () => menuTarget && restore(menuTarget.id)
+					},
+					{
+						label: 'Delete forever',
+						icon: 'delete',
+						danger: true,
+						action: () => menuTarget && askPurge(menuTarget)
+					}
+				]
+			: []
+	);
+
+	function openMenu(e: MouseEvent, entry: TrashEntry) {
+		e.preventDefault();
+		menuTarget = entry;
+		menuX = e.clientX;
+		menuY = e.clientY;
+		menuOpen = true;
+	}
+
 	onMount(load);
 </script>
 
@@ -81,6 +113,10 @@
 		</span>
 	</div>
 
+	<p class="mb-4 text-xs text-white/40">
+		Right-click (desktop) or long-press (mobile) an item to restore or permanently delete it.
+	</p>
+
 	{#if error}
 		<div class="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-sm text-red-300">
 			{error}
@@ -90,56 +126,33 @@
 	<FileGrid {folders} {files} {loading} {folderItem} {fileItem} />
 </div>
 
-{#snippet actionBtn(entry: TrashEntry, kind: 'restore' | 'purge', overlay: boolean)}
-	<button
-		onclick={(e) => {
-			e.stopPropagation();
-			e.preventDefault();
-			if (kind === 'restore') restore(entry.id);
-			else askPurge(entry);
-		}}
-		aria-label={kind === 'restore' ? 'Restore' : 'Delete forever'}
-		title={kind === 'restore' ? 'Restore' : 'Delete forever'}
-		class={overlay
-			? `absolute top-2 ${kind === 'restore' ? 'right-11' : 'right-2'} w-8 h-8 flex items-center justify-center rounded-lg bg-tw-darkblue/80 backdrop-blur opacity-0 group-hover:opacity-100 cursor-pointer transition-all duration-150 ${kind === 'restore' ? 'text-tw-neon hover:bg-tw-neon/20' : 'text-red-400 hover:bg-red-400/20'}`
-			: `ml-1 w-7 h-7 flex items-center justify-center rounded-lg cursor-pointer transition-colors duration-150 ${kind === 'restore' ? 'text-tw-neon/70 hover:text-tw-neon hover:bg-tw-neon/10' : 'text-red-400/70 hover:text-red-400 hover:bg-red-400/10'}`}
-	>
-		{#if kind === 'restore'}
-			<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4">
-				<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-				<path d="M3 3v5h5" />
-			</svg>
-		{:else}
-			<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4">
-				<path d="M3 6h18" />
-				<path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-				<path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-			</svg>
-		{/if}
-	</button>
-{/snippet}
-
 {#snippet folderItem(folder: TrashEntry)}
-	<div class="group relative opacity-60 hover:opacity-100 transition-opacity duration-150 flex items-center">
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div
+		class="opacity-70 hover:opacity-100 transition-opacity duration-150"
+		oncontextmenu={(e) => openMenu(e, folder)}
+	>
 		<div class="pointer-events-none">
-			<FolderCard name={folder.name} id={folder.id} />
+			<FolderCard name={folder.name} id={folder.id} readonly />
 		</div>
-		{@render actionBtn(folder, 'restore', false)}
-		{@render actionBtn(folder, 'purge', false)}
 	</div>
 {/snippet}
 
 {#snippet fileItem(file: TrashEntry)}
 	{#if file.url}
-		<div class="group relative opacity-60 hover:opacity-100 transition-opacity duration-150">
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="opacity-70 hover:opacity-100 transition-opacity duration-150"
+			oncontextmenu={(e) => openMenu(e, file)}
+		>
 			<div class="pointer-events-none">
-				<ImageCard name={file.name} id={file.id} url={file.url} />
+				<ImageCard name={file.name} id={file.id} url={file.url} readonly />
 			</div>
-			{@render actionBtn(file, 'restore', true)}
-			{@render actionBtn(file, 'purge', true)}
 		</div>
 	{/if}
 {/snippet}
+
+<ContextMenu bind:open={menuOpen} x={menuX} y={menuY} items={menuItems} />
 
 <Modal bind:open={purgeModalOpen} title="Delete forever?">
 	{#if purgeTarget}

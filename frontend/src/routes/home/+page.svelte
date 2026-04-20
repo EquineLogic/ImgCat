@@ -215,10 +215,10 @@
 			<div></div>
 		{/if}
 
-		<!-- Edit mode toggle -->
+		<!-- Edit mode toggle (desktop only) -->
 		<button
 			onclick={() => (editMode = !editMode)}
-			class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 cursor-pointer
+			class="hidden md:block px-3 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 cursor-pointer
 			       {editMode
 					? 'bg-tw-neon text-tw-darkblue hover:bg-tw-neon/90'
 					: 'bg-white/5 text-white/60 hover:text-white hover:bg-white/10'}"

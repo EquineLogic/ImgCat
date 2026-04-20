@@ -32,6 +32,11 @@
 	let shareError = $state('');
 	let sharing = $state(false);
 
+	let mobileOpen = $state(false);
+	function closeMobile() {
+		mobileOpen = false;
+	}
+
 	const collapsed = $derived(sidebarWidth < COLLAPSE_THRESHOLD);
 	const pendingCount = $derived($pendingRequests.length);
 
@@ -45,12 +50,18 @@
 					{
 						label: 'New Folder',
 						icon: 'folder-plus',
-						action: () => (showNewFolder = true)
+						action: () => {
+							showNewFolder = true;
+							closeMobile();
+						}
 					},
 					{
 						label: 'Upload Image',
 						icon: 'image-plus',
-						action: () => (showUpload = true)
+						action: () => {
+							showUpload = true;
+							closeMobile();
+						}
 					},
 					{
 						label: 'My Library',
@@ -60,7 +71,10 @@
 					{
 						label: 'Share Item',
 						icon: 'share',
-						action: () => (showShareItem = true)
+						action: () => {
+							showShareItem = true;
+							closeMobile();
+						}
 					},
 					{
 						label: 'Shared with Me',
@@ -347,8 +361,145 @@
 	<div class="fixed inset-0 z-50 cursor-col-resize"></div>
 {/if}
 
+<!-- Mobile top bar (hidden on md+) -->
+<div class="md:hidden fixed top-0 left-0 right-0 z-40 bg-tw-darkblue border-b border-white/10">
+	<div class="flex items-center justify-between h-14 px-4">
+		<a
+			href={mode === 'home' ? '/home' : '/settings'}
+			onclick={closeMobile}
+			class="text-xl font-extrabold bg-linear-to-r from-tw-purple to-tw-pink
+			       bg-clip-text text-transparent no-underline"
+		>
+			ImgCat
+		</a>
+		<button
+			onclick={() => (mobileOpen = !mobileOpen)}
+			aria-label="Menu"
+			class="relative p-2 rounded-lg text-white/70 hover:text-white
+			       hover:bg-white/5 cursor-pointer"
+		>
+			{#if mobileOpen}
+				<svg
+					xmlns="http://www.w3.org/2000/svg"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="1.8"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					class="w-6 h-6"
+				>
+					<line x1="18" y1="6" x2="6" y2="18" />
+					<line x1="6" y1="6" x2="18" y2="18" />
+				</svg>
+			{:else}
+				<svg
+					xmlns="http://www.w3.org/2000/svg"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="1.8"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					class="w-6 h-6"
+				>
+					<line x1="3" y1="6" x2="21" y2="6" />
+					<line x1="3" y1="12" x2="21" y2="12" />
+					<line x1="3" y1="18" x2="21" y2="18" />
+				</svg>
+			{/if}
+			{#if !mobileOpen && pendingCount > 0}
+				<span
+					class="absolute top-1 right-1 w-2 h-2 rounded-full
+					       bg-tw-pink shadow-[0_0_6px_rgba(237,67,141,0.8)]"
+				></span>
+			{/if}
+		</button>
+	</div>
+
+	{#if mobileOpen}
+		<nav
+			class="flex flex-col gap-1 px-3 pt-3 pb-3 border-t border-white/10
+			       max-h-[calc(100vh-3.5rem)] overflow-y-auto"
+		>
+			{#each [...navItems, ...bottomNavItems] as item (item.label)}
+				{#if 'action' in item && item.action}
+					<button
+						onclick={item.action}
+						class="flex items-center gap-3 px-3 py-2.5 rounded-xl
+						       transition-colors duration-200
+						       text-white/60 hover:text-white hover:bg-white/5 cursor-pointer"
+					>
+						{@render navIcon(item.icon)}
+						<span class="text-sm font-medium">{item.label}</span>
+					</button>
+				{:else if 'href' in item}
+					<a
+						href={item.href}
+						onclick={closeMobile}
+						class="flex items-center gap-3 px-3 py-2.5 rounded-xl no-underline
+						       transition-colors duration-200
+						       {isActive(item.href ?? '')
+							? 'bg-tw-purple/20 text-tw-neon shadow-[inset_0_0_12px_rgba(0,245,255,0.08)]'
+							: 'text-white/60 hover:text-white hover:bg-white/5'}"
+					>
+						{@render navIcon(item.icon)}
+						<span class="text-sm font-medium">{item.label}</span>
+						{#if 'badge' in item && item.badge}
+							<span
+								class="ml-auto px-1.5 py-0.5 text-[10px] font-bold rounded-full
+								       bg-tw-pink text-white leading-none min-w-4.5 text-center"
+							>{item.badge}</span>
+						{/if}
+					</a>
+				{/if}
+			{/each}
+
+			<div class="border-t border-white/10 mt-2 pt-2 flex items-center gap-2">
+				<a
+					href="/settings"
+					onclick={closeMobile}
+					class="flex-1 flex items-center gap-3 px-2 py-2 rounded-xl no-underline
+					       text-white/70 hover:text-white hover:bg-white/5 transition-colors duration-200"
+				>
+					<div
+						class="w-8 h-8 rounded-full bg-linear-to-br from-tw-purple to-tw-pink
+						       flex items-center justify-center text-white text-xs font-bold shrink-0"
+					>
+						{($user?.username ?? '?')[0].toUpperCase()}
+					</div>
+					<span class="text-sm truncate">{$user?.username}</span>
+				</a>
+				<button
+					onclick={handleSignOut}
+					aria-label="Sign out"
+					class="flex items-center gap-2 px-3 py-2 rounded-xl
+					       text-white/50 hover:text-red-400 hover:bg-red-400/10
+					       cursor-pointer transition-colors duration-200"
+				>
+					<svg
+						xmlns="http://www.w3.org/2000/svg"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="1.8"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						class="w-5 h-5 shrink-0"
+					>
+						<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+						<polyline points="16 17 21 12 16 7" />
+						<line x1="21" y1="12" x2="9" y2="12" />
+					</svg>
+					<span class="text-sm font-medium">Sign Out</span>
+				</button>
+			</div>
+		</nav>
+	{/if}
+</div>
+
 <aside
-	class="h-screen sticky top-0 flex flex-col
+	class="h-screen sticky top-0 hidden md:flex flex-col
 	       bg-tw-darkblue border-r border-white/10 shrink-0 overflow-hidden
 	       {dragging ? '' : 'transition-[width] duration-150'}"
 	style="width: {sidebarWidth}px"

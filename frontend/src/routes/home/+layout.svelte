@@ -8,7 +8,7 @@
 	<Sidebar />
 
 	<!-- Main content -->
-	<main class="flex-1 min-h-screen overflow-y-auto">
+	<main class="flex-1 min-h-screen overflow-y-auto pt-14 md:pt-0">
 		{@render children()}
 	</main>
 </div>
