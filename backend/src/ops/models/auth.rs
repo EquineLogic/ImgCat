@@ -11,38 +11,11 @@ use std::time::Duration;
 use uuid::Uuid;
 use chrono::DateTime;
 
-fn is_valid_password(password: &str) -> bool {
-    let has_uppercase = password.chars().any(|c| c.is_uppercase());
-    let has_lowercase = password.chars().any(|c| c.is_lowercase());
-    let has_digit = password.chars().any(|c| c.is_ascii_digit());
-    let has_symbol = password.chars().any(|c| !c.is_alphanumeric());
-    let is_long_enough = password.len() >= 8;
-    has_uppercase && has_lowercase && has_digit && has_symbol && is_long_enough
-}
-
 #[derive(Deserialize)]
 pub struct RegisterRequest {
     pub username: String,
     pub password: String,
     pub name: String,
-}
-
-impl RegisterRequest {
-    pub fn validate(&self) -> Result<(), String> {
-        if self.username.len() < 5 {
-            return Err("Username must be at least 5 characters".to_string());
-        }
-        if self.name.len() < 5 {
-            return Err("Display name must be at least 5 characters".to_string());
-        }
-        if self.password.len() < 8 {
-            return Err("Password must be at least 8 characters".to_string());
-        }
-        if !is_valid_password(&self.password) {
-            return Err("Password must contain at least one uppercase letter, one lowercase letter, one digit, and one special character".to_string());
-        }
-        Ok(())
-    }
 }
 
 #[derive(Deserialize)]
@@ -89,13 +62,18 @@ pub struct LoggedInUser {
     pub group: Option<(Uuid, String)>
 }
 
-impl LoggedInUser {
+pub enum OpUser {
+    User(LoggedInUser),
+    Anon,
+}
+
+impl OpUser {
     fn get_group_id(parts: &mut axum::http::request::Parts) -> Option<Uuid> {
         parts.headers.get("X-Group")?.to_str().ok()?.parse().ok() // take x-group, convert to str if possible and parse to uuid if possible
     }
 }
 
-impl FromRequestParts<AppData> for LoggedInUser {
+impl FromRequestParts<AppData> for OpUser {
     type Rejection = (StatusCode, String);
 
     async fn from_request_parts(
@@ -111,10 +89,11 @@ impl FromRequestParts<AppData> for LoggedInUser {
                 )
             })?;
 
-        let session_token = jar
-            .get("session_token")
-            .map(|c| c.value())
-            .ok_or((StatusCode::UNAUTHORIZED, "No session token".to_string()))?;
+        let Some(session_token) = jar
+        .get("session_token")
+        .map(|c| c.value()) else {
+            return Ok(OpUser::Anon)
+        };
 
         #[derive(sqlx::FromRow)]
         struct Row {
@@ -124,7 +103,7 @@ impl FromRequestParts<AppData> for LoggedInUser {
             session_id: Uuid,
         }
 
-        let row: Row = sqlx::query_as(
+        let Some(row) = sqlx::query_as::<_, Row>(
             "SELECT u.id, u.user_type, u.username, s.id AS session_id FROM sessions s JOIN users u ON s.user_id = u.id WHERE s.token = $1 AND s.expires_at > NOW()"
         )
         .bind(&session_token)
@@ -135,8 +114,9 @@ impl FromRequestParts<AppData> for LoggedInUser {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 e.to_string(),
             )
-        })?
-        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "Invalid authorization provided".to_string()))?;
+        })? else {
+            return Ok(OpUser::Anon);
+        };
 
         let group_id = Self::get_group_id(parts);
         let group_data = match group_id {
@@ -166,7 +146,7 @@ impl FromRequestParts<AppData> for LoggedInUser {
             None => None,
         };
 
-        Ok(LoggedInUser { user_id: row.id, username: row.username, user_type: row.user_type, session_id: row.session_id, group: group_data })
+        Ok(OpUser::User(LoggedInUser { user_id: row.id, username: row.username, user_type: row.user_type, session_id: row.session_id, group: group_data }))
     }
 }
 
@@ -197,15 +177,6 @@ impl ChangeUsername {
 pub struct ChangePassword {
     pub curr_password: String,
     pub new_password: String,
-}
-
-impl ChangePassword {
-    pub fn validate(&self) -> Result<(), String> {
-        if !is_valid_password(&self.new_password) {
-            return Err("Password must contain at least one uppercase letter, one lowercase letter, one digit, and one special character".to_string());
-        }
-        Ok(())
-    }
 }
 
 #[derive(Deserialize)]

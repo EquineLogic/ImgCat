@@ -298,6 +298,15 @@ impl AppData {
         }
     }
 
+    fn is_valid_password(password: &str) -> bool {
+        let has_uppercase = password.chars().any(|c| c.is_uppercase());
+        let has_lowercase = password.chars().any(|c| c.is_lowercase());
+        let has_digit = password.chars().any(|c| c.is_ascii_digit());
+        let has_symbol = password.chars().any(|c| !c.is_alphanumeric());
+        let is_long_enough = password.len() >= 8;
+        has_uppercase && has_lowercase && has_digit && has_symbol && is_long_enough
+    }
+
     pub async fn exec_op(&self, op: OpArgs, user_id: Option<OpCtx>) -> Result<OpSuccess, OpError> {
         let mut user_perms = None;
 
@@ -805,6 +814,20 @@ impl AppData {
                     });
                 }
 
+                if username.len() < 5 {
+                    return Err("Username must be at least 5 characters".into());
+                }
+                if name.len() < 5 {
+                    return Err("Display name must be at least 5 characters".into());
+                }
+                if password.len() < 8 {
+                    return Err("Password must be at least 8 characters".into());
+                }
+                if !Self::is_valid_password(&password) {
+                    return Err("Password must contain at least one uppercase letter, one lowercase letter, one digit, and one special character".into());
+                }
+
+
                 let hashed_password = salt_and_hash_password(&password);
 
                 let mut tx = self.pool.begin().await?;
@@ -1127,6 +1150,10 @@ impl AppData {
                 };
                 if !uid.is_user() {
                     return Err(OpError::UserOnlyOp)
+                }
+
+                if !Self::is_valid_password(&new_password) {
+                    return Err("Password must contain at least one uppercase letter, one lowercase letter, one digit, and one special character".into());
                 }
 
                 let row = sqlx::query("SELECT password FROM users WHERE id = $1")
