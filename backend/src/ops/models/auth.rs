@@ -11,19 +11,6 @@ use std::time::Duration;
 use uuid::Uuid;
 use chrono::DateTime;
 
-#[derive(Deserialize)]
-pub struct RegisterRequest {
-    pub username: String,
-    pub password: String,
-    pub name: String,
-}
-
-#[derive(Deserialize)]
-pub struct SignInRequest {
-    pub username: String,
-    pub password: String,
-}
-
 #[derive(Serialize, Deserialize)]
 pub struct Session {
     pub user_id: Uuid,
@@ -62,18 +49,13 @@ pub struct LoggedInUser {
     pub group: Option<(Uuid, String)>
 }
 
-pub enum OpUser {
-    User(LoggedInUser),
-    Anon,
-}
-
-impl OpUser {
+impl LoggedInUser {
     fn get_group_id(parts: &mut axum::http::request::Parts) -> Option<Uuid> {
         parts.headers.get("X-Group")?.to_str().ok()?.parse().ok() // take x-group, convert to str if possible and parse to uuid if possible
     }
 }
 
-impl FromRequestParts<AppData> for OpUser {
+impl FromRequestParts<AppData> for LoggedInUser {
     type Rejection = (StatusCode, String);
 
     async fn from_request_parts(
@@ -89,11 +71,10 @@ impl FromRequestParts<AppData> for OpUser {
                 )
             })?;
 
-        let Some(session_token) = jar
-        .get("session_token")
-        .map(|c| c.value()) else {
-            return Ok(OpUser::Anon)
-        };
+        let session_token = jar
+            .get("session_token")
+            .map(|c| c.value())
+            .ok_or((StatusCode::UNAUTHORIZED, "No session token".to_string()))?;
 
         #[derive(sqlx::FromRow)]
         struct Row {
@@ -103,7 +84,7 @@ impl FromRequestParts<AppData> for OpUser {
             session_id: Uuid,
         }
 
-        let Some(row) = sqlx::query_as::<_, Row>(
+        let row: Row = sqlx::query_as(
             "SELECT u.id, u.user_type, u.username, s.id AS session_id FROM sessions s JOIN users u ON s.user_id = u.id WHERE s.token = $1 AND s.expires_at > NOW()"
         )
         .bind(&session_token)
@@ -114,9 +95,8 @@ impl FromRequestParts<AppData> for OpUser {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 e.to_string(),
             )
-        })? else {
-            return Ok(OpUser::Anon);
-        };
+        })?
+        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "Invalid authorization provided".to_string()))?;
 
         let group_id = Self::get_group_id(parts);
         let group_data = match group_id {
@@ -146,7 +126,7 @@ impl FromRequestParts<AppData> for OpUser {
             None => None,
         };
 
-        Ok(OpUser::User(LoggedInUser { user_id: row.id, username: row.username, user_type: row.user_type, session_id: row.session_id, group: group_data }))
+        Ok(LoggedInUser { user_id: row.id, username: row.username, user_type: row.user_type, session_id: row.session_id, group: group_data })
     }
 }
 
@@ -157,31 +137,6 @@ impl LoggedInUser {
             _ => Err(OpError::Generic("Invalid user type provided".into()))
         }
     }
-}
-
-#[derive(Deserialize)]
-pub struct ChangeUsername {
-    pub username: String,
-}
-
-impl ChangeUsername {
-    pub fn validate(&self) -> Result<(), String> {
-        if self.username.len() < 5 {
-            return Err("Username must be at least 5 characters".to_string());
-        }
-        Ok(())
-    }
-}
-
-#[derive(Deserialize)]
-pub struct ChangePassword {
-    pub curr_password: String,
-    pub new_password: String,
-}
-
-#[derive(Deserialize)]
-pub struct SetTrashRetention {
-    pub days: i32,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]

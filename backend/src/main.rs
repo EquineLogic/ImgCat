@@ -37,34 +37,12 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(|| async { "Hello, World!" }))
-        .route("/register", post(routes::auth::register))
-        .route("/signin", post(routes::auth::sign_in))
-        .route("/check_auth", get(routes::auth::check_auth))
-        .route("/signout", post(routes::auth::sign_out))
-        .route("/create_folder", post(routes::filesystem::create_folder))
-        .route("/list_folders", get(routes::filesystem::list_folders))
-        .route("/delete_folder", post(routes::filesystem::delete_folder))
-        .route("/rename_folder", post(routes::filesystem::rename_folder))
-        .route("/upload_file", post(routes::filesystem::upload_file))
-        .route("/list_files", get(routes::filesystem::list_files))
-        .route("/rename_file", post(routes::filesystem::rename_file))
-        .route("/delete_file", post(routes::filesystem::delete_file))
-        .route("/reorder", post(routes::filesystem::reorder))
-        .route("/move", post(routes::filesystem::move_entry))
-        .route("/list_trash", get(routes::filesystem::list_trash))
-        .route("/restore", post(routes::filesystem::restore_entry))
-        .route(
-            "/delete_trash_entry",
-            post(routes::filesystem::delete_trash_entry),
-        )
+        .route("/check_auth", get(routes::check_auth))
         // WebSocket
         .route("/ws", get(routes::ws::ws_handler))
-        .route("/change_username", post(routes::auth::change_username))
-        .route("/change_password", post(routes::auth::change_password))
-        .route(
-            "/trash_retention",
-            get(routes::auth::get_trash_retention).post(routes::auth::set_trash_retention),
-        )
+        .route("/op_anon", post(routes::op_anon))
+        .route("/op_auth", post(routes::op_auth))
+        .route("/upload_file_multipart", post(routes::upload_file_multipart))
         .with_state(state)
         .layer(cors)
         .layer(DefaultBodyLimit::max(100 * 1024 * 1024)); // 100MB limit

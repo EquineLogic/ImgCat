@@ -1122,6 +1122,10 @@ impl AppData {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
+                if new_username.len() < 5 {
+                    return Err("Username must be at least 5 characters".into());
+                }
+
                 sqlx::query("UPDATE users SET username = $1 WHERE id = $2")
                     .bind(&new_username)
                     .bind(uid.account_id())

@@ -1,13 +1,13 @@
+use axum::extract::{Multipart, State};
 use axum::http::HeaderValue;
 use axum::response::IntoResponse;
 use axum::{Json, http::StatusCode};
 use reqwest::header::SET_COOKIE;
 
-use crate::ops::models::SessionType;
-use crate::ops::{OpError, OpSuccess};
+use crate::AppData;
+use crate::ops::models::{LoggedInUser, NewFile, SessionType};
+use crate::ops::{OpArgs, OpError, OpSuccess};
 
-pub mod auth;
-pub mod filesystem;
 pub mod ws;
 
 impl IntoResponse for OpSuccess {
@@ -54,4 +54,57 @@ impl IntoResponse for OpError {
             Self::OpNeedsPerms { perm } => (StatusCode::FORBIDDEN, format!("This operation needs {perm}!")).into_response(),
         }
     }
+}
+
+pub async fn op_auth(
+    State(app): State<AppData>,
+    user: LoggedInUser,
+    Json(payload): Json<OpArgs>,
+) -> Result<OpSuccess, OpError> {
+    app
+    .exec_op(
+        payload,
+        Some(user.into_ctx()?),
+    )
+    .await
+}
+
+pub async fn op_anon(
+    State(app): State<AppData>,
+    Json(payload): Json<OpArgs>,
+) -> Result<OpSuccess, OpError> {
+    app
+    .exec_op(
+        payload,
+        None,
+    )
+    .await
+}
+
+pub async fn check_auth(
+    State(_app): State<AppData>,
+    user: LoggedInUser,
+) -> Json<LoggedInUser> {
+    Json(user) // LoggedInUser extractor already verified auth and has the username
+}
+
+pub async fn upload_file_multipart(
+    State(app): State<AppData>,
+    user: LoggedInUser,
+    multipart: Multipart,
+) -> Result<OpSuccess, OpError> {
+    let payload = NewFile::from_multipart(multipart)
+        .await
+        .map_err(|(_, msg)| OpError::BadRequest { reason: msg })?;
+
+    app.exec_op(
+        OpArgs::UploadFile {
+            data: payload.data,
+            name: payload.name,
+            mime_type: payload.mime_type,
+            parent_id: payload.parent_id,
+        },
+        Some(user.into_ctx()?),
+    )
+    .await
 }

@@ -72,35 +72,6 @@ pub struct TrashRow {
     pub s3_fileid: Option<String>,
 }
 
-// ── Request types ─────────���─────────────────────────────────────────────
-
-#[derive(Deserialize)]
-pub struct NewFolder {
-    pub name: String,
-    pub parent_id: Option<Uuid>,
-}
-
-#[derive(Deserialize)]
-pub struct ListParams {
-    pub parent_id: Option<Uuid>,
-}
-
-#[derive(Deserialize)]
-pub struct DeleteFolder {
-    pub id: Uuid,
-}
-
-#[derive(Deserialize)]
-pub struct DeleteFile {
-    pub id: Uuid,
-}
-
-#[derive(Deserialize)]
-pub struct RenameRequest {
-    pub id: Uuid,
-    pub name: String,
-}
-
 pub struct NewFile {
     pub data: Vec<u8>,
     pub name: String,
