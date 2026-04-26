@@ -3,7 +3,7 @@
 	import RenameModal from './RenameModal.svelte';
 	import ImageViewer from './ImageViewer.svelte';
 	import { fetchFiles } from '$lib/stores/files';
-	import { op } from '$lib/api';
+	import { fetchClient, op } from '$lib/api';
 
 	let { name, id, url, readonly = false } = $props<{ name: string; id: string; url: string; readonly?: boolean }>();
 	let viewerOpen = $state(false);
@@ -38,7 +38,7 @@
 	}
 
 	async function downloadFile() {
-		const res = await fetch(url, { credentials: 'include' });
+		const res = await fetchClient(url);
 		if (!res.ok) return;
 		const blob = await res.blob();
 		const a = document.createElement('a');

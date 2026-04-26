@@ -1,36 +1,16 @@
 use axum::extract::{Multipart, State};
-use axum::http::HeaderValue;
 use axum::response::IntoResponse;
 use axum::{Json, http::StatusCode};
-use reqwest::header::SET_COOKIE;
 
 use crate::AppData;
-use crate::ops::models::{LoggedInUser, NewFile, SessionType};
+use crate::ops::models::{LoggedInUser, NewFile};
 use crate::ops::{OpArgs, OpError, OpSuccess};
 
 pub mod ws;
 
 impl IntoResponse for OpSuccess {
     fn into_response(self) -> axum::response::Response {
-        let mut sess_token = None;
-        match &self {
-            Self::CreatedSession { token, token_type, .. } if *token_type == SessionType::Login => sess_token = Some(token.to_string()),
-            _ => {}
-        }
-        let mut resp = (StatusCode::OK, Json(self)).into_response();
-        if let Some(token) = sess_token {
-            // Cookie helper
-            let cookie = format!(
-                "session_token={}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800",
-                token
-            );
-
-            if let Ok(hv) = HeaderValue::from_str(&cookie) {
-                resp.headers_mut().insert(SET_COOKIE, hv);
-            }
-        }
-
-        resp
+        (StatusCode::OK, Json(self)).into_response()
     }
 }
 

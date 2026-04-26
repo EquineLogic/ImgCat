@@ -2,7 +2,7 @@
 	import RenameModal from './RenameModal.svelte';
 	import ConfirmModal from './ConfirmModal.svelte';
 	import { fetchFiles } from '$lib/stores/files';
-	import { op } from '$lib/api';
+	import { fetchClient, op } from '$lib/api';
 
 	let { open = $bindable(false), id, name, url: fileurl, readonly = false } = $props<{
 		open: boolean;
@@ -94,7 +94,7 @@
 
 	async function download() {
 		menuOpen = false;
-		const res = await fetch(fileurl, { credentials: 'include' });
+		const res = await fetchClient(fileurl);
 		if (!res.ok) return;
 		const blob = await res.blob();
 		const url = URL.createObjectURL(blob);

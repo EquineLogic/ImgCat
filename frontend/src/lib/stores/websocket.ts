@@ -1,3 +1,4 @@
+import { getToken } from '$lib/api';
 import { WS_BASE } from '$lib/config';
 import { fetchGroups } from './groups';
 
@@ -20,6 +21,16 @@ export function connectWebSocket() {
 
 	ws.onopen = () => {
 		reconnectDelay = 1000;
+		
+		// identify to server
+		if(ws) {
+			let token = getToken()
+			if (!token) {
+				ws.close(4001, "Client has no token")
+				return
+			}
+			ws.send(token)
+		}
 	};
 
 	ws.onmessage = (ev) => {

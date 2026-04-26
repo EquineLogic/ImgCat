@@ -2,7 +2,6 @@ use crate::AppData;
 use crate::ops::{OpCtx, OpError};
 use axum::extract::FromRequestParts;
 use axum::http::StatusCode;
-use axum_extra::extract::CookieJar;
 use chrono::Utc;
 use rand::distr::Alphanumeric;
 use rand::{distr::SampleString, rng};
@@ -50,32 +49,8 @@ pub struct LoggedInUser {
 }
 
 impl LoggedInUser {
-    fn get_group_id(parts: &mut axum::http::request::Parts) -> Option<Uuid> {
-        parts.headers.get("X-Group")?.to_str().ok()?.parse().ok() // take x-group, convert to str if possible and parse to uuid if possible
-    }
-}
-
-impl FromRequestParts<AppData> for LoggedInUser {
-    type Rejection = (StatusCode, String);
-
-    async fn from_request_parts(
-        parts: &mut axum::http::request::Parts,
-        state: &AppData,
-    ) -> Result<Self, Self::Rejection> {
-        let jar = CookieJar::from_request_parts(parts, state)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::BAD_REQUEST,
-                    format!("Failed to parse cookies: {e}"),
-                )
-            })?;
-
-        let session_token = jar
-            .get("session_token")
-            .map(|c| c.value())
-            .ok_or((StatusCode::UNAUTHORIZED, "No session token".to_string()))?;
-
+    /// Actual implementation that authorizes a user given session token and group id
+    pub async fn authorize(pool: &sqlx::PgPool, session_token: &str, group_id: Option<Uuid>) -> Result<Option<Self>, crate::Error> {
         #[derive(sqlx::FromRow)]
         struct Row {
             id: Uuid,
@@ -84,21 +59,15 @@ impl FromRequestParts<AppData> for LoggedInUser {
             session_id: Uuid,
         }
 
-        let row: Row = sqlx::query_as(
+        let Some(row) = sqlx::query_as::<_, Row>(
             "SELECT u.id, u.user_type, u.username, s.id AS session_id FROM sessions s JOIN users u ON s.user_id = u.id WHERE s.token = $1 AND s.expires_at > NOW()"
         )
         .bind(&session_token)
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                e.to_string(),
-            )
-        })?
-        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "Invalid authorization provided".to_string()))?;
+        .fetch_optional(pool)
+        .await? else {
+            return Ok(None);
+        };
 
-        let group_id = Self::get_group_id(parts);
         let group_data = match group_id {
             Some(id) => {
                 #[derive(sqlx::FromRow)]
@@ -112,22 +81,51 @@ impl FromRequestParts<AppData> for LoggedInUser {
                 )
                 .bind(&row.id)
                 .bind(&id)
-                .fetch_optional(&state.pool)
-                .await
-                .map_err(|e| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        e.to_string(),
-                    )
-                })?
-                .ok_or_else(|| (StatusCode::UNAUTHORIZED, "Could not find selected group in users group list".to_string()))?;
+                .fetch_optional(pool)
+                .await?
+                .ok_or_else(|| "Could not find selected group in users group list".to_string())?;
 
                 Some((id, row.username))
             },
             None => None,
         };
 
-        Ok(LoggedInUser { user_id: row.id, username: row.username, user_type: row.user_type, session_id: row.session_id, group: group_data })
+        Ok(Some(LoggedInUser { user_id: row.id, username: row.username, user_type: row.user_type, session_id: row.session_id, group: group_data }))
+    }
+
+    fn get_auth_hdr<'a>(parts: &'a axum::http::request::Parts) -> Option<&'a str> {
+        parts.headers.get("Authorization")?.to_str().ok() // take x-group, convert to str if possible and parse to uuid if possible
+    }
+
+    fn get_group_id_hdr(parts: &axum::http::request::Parts) -> Option<Uuid> {
+        parts.headers.get("X-Group")?.to_str().ok()?.parse().ok() // take x-group, convert to str if possible and parse to uuid if possible
+    }
+}
+
+impl FromRequestParts<AppData> for LoggedInUser {
+    type Rejection = (StatusCode, String);
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        state: &AppData,
+    ) -> Result<Self, Self::Rejection> {
+        let Some(session_token) = Self::get_auth_hdr(parts) else {
+            return Err((StatusCode::UNAUTHORIZED, "No session token passed".to_string()))
+        };
+        let group_id = Self::get_group_id_hdr(parts); // take x-group, convert to str if possible and parse to uuid if possible
+
+        let Some(lu) = Self::authorize(&state.pool, session_token, group_id)
+        .await 
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                e.to_string(),
+            )
+        })? else {
+            return Err((StatusCode::UNAUTHORIZED, "Invalid session token passed".to_string()))
+        };
+        
+        Ok(lu)
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::AppData;
+use crate::{AppData, ops::models::LoggedInUser};
 use axum::{
     extract::{
         ws::{CloseFrame, Message, WebSocket},
@@ -6,34 +6,47 @@ use axum::{
     },
     response::IntoResponse,
 };
-use axum_extra::extract::CookieJar;
-use sqlx::Row;
-use uuid::Uuid;
 
 pub async fn ws_handler(
     State(app): State<AppData>,
-    jar: CookieJar,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
-    let user = authenticate(&app, &jar).await;
-    ws.on_upgrade(move |socket| handle_socket(socket, app, user))
+    ws.on_upgrade(move |socket| handle_socket(socket, app))
 }
 
-async fn authenticate(app: &AppData, jar: &CookieJar) -> Option<Uuid> {
-    let token = jar.get("session_token")?.value().to_owned();
-    let row = sqlx::query(
-        "SELECT u.id FROM sessions s JOIN users u ON s.user_id = u.id WHERE s.token = $1 AND s.expires_at > NOW()",
-    )
-    .bind(&token)
-    .fetch_optional(&app.pool)
-    .await
-    .ok()??;
+async fn handle_socket(mut socket: WebSocket, app: AppData) {
+    let mut user_id = None;
 
-    Some(row.get("id"))
-}
+    // Wait for auth
+    while let Some(Ok(msg)) = socket.recv().await {
+        match msg {
+            Message::Ping(data) => {
+                let _ = socket.send(Message::Pong(data)).await;
+            }
+            Message::Text(ident) => {
+                match LoggedInUser::authorize(&app.pool, &ident.as_str(), None).await {
+                    Ok(Some(lu)) => {
+                        user_id = Some(lu.user_id);
+                        break;
+                    }
+                    Ok(None) => break,
+                    Err(e) => {
+                        let _ = socket
+                            .send(Message::Close(Some(CloseFrame {
+                                code: 4001,
+                                reason: e.to_string().into(),
+                            })))
+                            .await;
+                        return;
+                    }
+                };
+            }
+            Message::Close(_) => break,
+            _ => {}
+        }
+    }
 
-async fn handle_socket(mut socket: WebSocket, app: AppData, user: Option<Uuid>) {
-    let Some(user_id) = user else {
+    let Some(user_id) = user_id else {
         let _ = socket
             .send(Message::Close(Some(CloseFrame {
                 code: 4001,
@@ -73,6 +86,6 @@ async fn handle_socket(mut socket: WebSocket, app: AppData, user: Option<Uuid>) 
             }
         }
     }
-
+    
     app.notify.remove_if_empty(user_id);
 }

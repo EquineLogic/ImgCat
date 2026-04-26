@@ -6,7 +6,7 @@
 	import Modal from './Modal.svelte';
 	import { fetchFolders, currentFolderId, resetToRoot } from '$lib/stores/folders';
 	import { fetchFiles } from '$lib/stores/files';
-	import { op } from '$lib/api';
+	import { fetchClient, op } from '$lib/api';
 	import { groupContext } from '$lib/stores/groupContext';
 	import { pendingInvites } from '$lib/stores/groups';
 	import { API_BASE } from '$lib/config';
@@ -146,9 +146,8 @@
 				if ($currentFolderId) form.append('parent_id', $currentFolderId);
 				const headers: Record<string, string> = {};
 				if (gid) headers['X-Group'] = gid;
-				const res = await fetch(`${API_BASE}/upload_file_multipart`, {
+				const res = await fetchClient(`${API_BASE}/upload_file_multipart`, {
 					method: 'POST',
-					credentials: 'include',
 					headers,
 					body: form
 				});

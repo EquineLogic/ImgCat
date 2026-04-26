@@ -1,15 +1,30 @@
 import { API_BASE } from './config';
 import { groupContext, currentGroupId } from './stores/groupContext';
 
+export const getToken = (): string | null => {
+	let tok = localStorage.getItem("usertoken")
+	if (!tok) return null
+	return tok
+}
+
+export const setToken = (token: string) => {
+	localStorage.setItem("usertoken", token)
+}
+
 export async function op<T = unknown>(args: object, anon = false): Promise<T> {
 	const headers: Record<string, string> = { 'Content-Type': 'application/json' };
 	if (!anon) {
 		const gid = currentGroupId();
 		if (gid) headers['X-Group'] = gid;
+	} else {
+		let token = getToken()
+		if (!token) {
+			throw new Error("Cannot execute an authenticated action without a valid session")
+		}
+		headers["Authorization"] = token
 	}
 	const res = await fetch(`${API_BASE}/${anon ? 'op_anon' : 'op_auth'}`, {
 		method: 'POST',
-		credentials: 'include',
 		headers,
 		body: JSON.stringify(args)
 	});
@@ -24,4 +39,13 @@ export async function op<T = unknown>(args: object, anon = false): Promise<T> {
 		throw new Error(text);
 	}
 	return res.json() as Promise<T>;
+}
+
+export async function fetchClient(url: string, init?: RequestInit) {
+	let patchedInit = init || {}
+	let newHeaders = patchedInit.headers || {}
+	// @ts-ignore
+	newHeaders["Authorization"] = getToken()
+	patchedInit.headers = newHeaders
+	return fetch(url, init)
 }

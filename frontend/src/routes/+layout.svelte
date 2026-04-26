@@ -8,6 +8,7 @@
 	import favicon from '$lib/assets/favicon.svg';
 	import { API_BASE } from '$lib/config';
 	import "../app.css";
+	import { fetchClient } from '$lib/api';
 
 	let { children } = $props();
 
@@ -15,7 +16,7 @@
 
 	onMount(async () => {
 		try {
-			const res = await fetch(`${API_BASE}/check_auth`, {
+			const res = await fetchClient(`${API_BASE}/check_auth`, {
 				credentials: 'include'
 			});
 

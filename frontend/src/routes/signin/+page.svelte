@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { user } from '$lib/stores/auth';
-	import { op } from '$lib/api';
+	import { fetchClient, op, setToken } from '$lib/api';
 	import { API_BASE } from '$lib/config';
 
 	let message = $state('');
@@ -21,10 +21,11 @@
 				},
 				true
 			);
-			const meRes = await fetch(`${API_BASE}/check_auth`, { credentials: 'include' });
+			const meRes = await fetchClient(`${API_BASE}/check_auth`);
 			if (!meRes.ok) throw new Error(await meRes.text());
 			const me = await meRes.json();
 			user.set({ user_id: me.user_id, username: me.username, session_id: me.session_id });
+			setToken(me.token)
 			goto('/home');
 		} catch (e: any) {
 			message = e?.message || 'Sign in failed';
