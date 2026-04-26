@@ -60,8 +60,11 @@
 			const meRes = await fetchClient(`${API_BASE}/check_auth`);
 			if (!meRes.ok) throw new Error(await meRes.text());
 			const me = await meRes.json();
-			user.set({ user_id: me.user_id, username: me.username, session_id: me.session_id });
+			
+			if (!me.token) throw new Error("No token returned in responses")
 			setToken(me.token)
+
+			user.set({ user_id: me.user_id, username: me.username, session_id: me.session_id });
 			goto('/home');
 		} catch (e: any) {
 			message = e?.message || 'Registration failed';
