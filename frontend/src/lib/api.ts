@@ -1,9 +1,16 @@
 import { API_BASE } from './config';
 import { groupContext, currentGroupId } from './stores/groupContext';
+import { get, writable } from 'svelte/store';
 
+const tokenCache = writable<string | null>(null);
 export const getToken = (): string | null => {
+	let cached = get(tokenCache)
+	if (get(tokenCache)) {
+		return cached
+	}
 	let tok = localStorage.getItem("usertoken")
 	if (!tok) return null
+	tokenCache.set(tok)
 	return tok
 }
 
@@ -11,6 +18,7 @@ export const setToken = (token: string) => {
 	if (!token) throw new Error("token is null to setToken")
 	console.log("setToken()")
 	localStorage.setItem("usertoken", token)
+	tokenCache.set(token)
 }
 
 export async function op<T = unknown>(args: object, anon = false): Promise<T> {
