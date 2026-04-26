@@ -9,6 +9,7 @@ export const getToken = (): string | null => {
 
 export const setToken = (token: string) => {
 	if (!token) throw new Error("token is null to setToken")
+	console.log("setToken()")
 	localStorage.setItem("usertoken", token)
 }
 
