@@ -15,8 +15,10 @@ export async function op<T = unknown>(args: object, anon = false): Promise<T> {
 	const headers: Record<string, string> = { 'Content-Type': 'application/json' };
 	if (!anon) {
 		const gid = currentGroupId();
-		if (gid) headers['X-Group'] = gid;
-	} else {
+		if (gid) {
+			headers['X-Group'] = gid;
+		}
+
 		let token = getToken()
 		if (!token) {
 			throw new Error("Cannot execute an authenticated action without a valid session")
