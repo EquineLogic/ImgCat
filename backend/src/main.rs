@@ -3,7 +3,7 @@ use backend::{AppData, config, routes};
 use axum::{
     Router,
     extract::DefaultBodyLimit,
-    http::{HeaderValue, Method},
+    http::{HeaderValue, HeaderName, Method},
     routing::{get, post},
 };
 use reqwest::header;
@@ -33,7 +33,7 @@ async fn main() {
         )
         .allow_methods([Method::POST, Method::GET])
         .allow_credentials(true)
-        .allow_headers([header::CONTENT_TYPE]);
+        .allow_headers([header::CONTENT_TYPE, "X-Group".parse::<HeaderName>().unwrap()]);
 
     let app = Router::new()
         .route("/", get(|| async { "Hello, World!" }))
