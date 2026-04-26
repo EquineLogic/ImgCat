@@ -51,5 +51,5 @@ export async function fetchClient(url: string, init?: RequestInit) {
 	// @ts-ignore
 	newHeaders["Authorization"] = getToken()
 	patchedInit.headers = newHeaders
-	return fetch(url, init)
+	return fetch(url, patchedInit)
 }
