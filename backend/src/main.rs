@@ -33,7 +33,7 @@ async fn main() {
         )
         .allow_methods([Method::POST, Method::GET])
         .allow_credentials(true)
-        .allow_headers([header::CONTENT_TYPE, "X-Group".parse::<HeaderName>().unwrap()]);
+        .allow_headers([header::CONTENT_TYPE, "X-Group".parse::<HeaderName>().unwrap(), header::AUTHORIZATION]);
 
     let app = Router::new()
         .route("/", get(|| async { "Hello, World!" }))
