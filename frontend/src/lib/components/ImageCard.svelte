@@ -1,10 +1,9 @@
 <script lang="ts">
 	import ContextMenu from './ContextMenu.svelte';
 	import RenameModal from './RenameModal.svelte';
-	import ShareModal from './ShareModal.svelte';
 	import ImageViewer from './ImageViewer.svelte';
 	import { fetchFiles } from '$lib/stores/files';
-	import { API_BASE } from '$lib/config';
+	import { op } from '$lib/api';
 
 	let { name, id, url, readonly = false } = $props<{ name: string; id: string; url: string; readonly?: boolean }>();
 	let viewerOpen = $state(false);
@@ -13,7 +12,6 @@
 	let menuX = $state(0);
 	let menuY = $state(0);
 	let showRename = $state(false);
-	let showShare = $state(false);
 
 	function onContextMenu(e: MouseEvent) {
 		e.preventDefault();
@@ -23,27 +21,20 @@
 	}
 
 	async function submitRename(newName: string): Promise<string | null> {
-		const res = await fetch(`${API_BASE}/rename_file`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			credentials: 'include',
-			body: JSON.stringify({ id, name: newName })
-		});
-		if (!res.ok) return await res.text();
+		try {
+			await op({ op: 'RenameFile', id, name: newName });
+		} catch (e: any) {
+			return e?.message || 'Rename failed';
+		}
 		await fetchFiles();
 		return null;
 	}
 
 	async function deleteFile() {
-		const res = await fetch(`${API_BASE}/delete_file`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			credentials: 'include',
-			body: JSON.stringify({ id })
-		});
-		if (res.ok) {
+		try {
+			await op({ op: 'DeleteFile', id });
 			await fetchFiles();
-		}
+		} catch {}
 	}
 
 	async function downloadFile() {
@@ -68,11 +59,6 @@
 				}
 			]
 		: [
-				{
-					label: 'Share',
-					icon: 'share',
-					action: () => (showShare = true)
-				},
 				{
 					label: 'Rename',
 					icon: 'rename',
@@ -111,7 +97,5 @@
 <ContextMenu bind:open={menuOpen} x={menuX} y={menuY} items={menuItems} />
 
 <RenameModal bind:open={showRename} title="Rename File" currentName={name} onSubmit={submitRename} />
-
-<ShareModal bind:open={showShare} filesystemId={id} entryName={name} />
 
 <ImageViewer bind:open={viewerOpen} {id} {name} {url} {readonly} />

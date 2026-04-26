@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { user } from '$lib/stores/auth';
+	import { op } from '$lib/api';
 	import { API_BASE } from '$lib/config';
 
 	let message = $state('');
@@ -11,26 +12,24 @@
 		const form = e.target as HTMLFormElement;
 		const formData = new FormData(form);
 
-		const res = await fetch(`${API_BASE}/signin`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			credentials: 'include',
-			body: JSON.stringify({
-				username: formData.get('username'),
-				password: formData.get('password')
-			})
-		});
-
-		if (res.ok) {
-			const data = await res.json();
-			user.set(data);
+		try {
+			await op(
+				{
+					op: 'CreateLoginSession',
+					username: formData.get('username'),
+					password: formData.get('password')
+				},
+				true
+			);
+			const meRes = await fetch(`${API_BASE}/check_auth`, { credentials: 'include' });
+			if (!meRes.ok) throw new Error(await meRes.text());
+			const me = await meRes.json();
+			user.set({ username: me.username, session_id: me.session_id });
 			goto('/home');
-			return;
+		} catch (e: any) {
+			message = e?.message || 'Sign in failed';
+			isError = true;
 		}
-
-		const text = await res.text();
-		message = text;
-		isError = true;
 	}
 </script>
 

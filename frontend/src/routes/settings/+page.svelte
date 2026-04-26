@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { user } from '$lib/stores/auth';
 	import Modal from '$lib/components/Modal.svelte';
-	import { API_BASE } from '$lib/config';
+	import { op } from '$lib/api';
 
 	let showUsername = $state(false);
 	let newUsername = $state('');
@@ -32,21 +32,12 @@
 		usernameSaving = true;
 		usernameError = '';
 		try {
-			const res = await fetch(`${API_BASE}/change_username`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				credentials: 'include',
-				body: JSON.stringify({ username: newUsername.trim() })
-			});
-			if (!res.ok) {
-				usernameError = await res.text();
-				return;
-			}
+			await op({ op: 'ChangeUsername', new_username: newUsername.trim() });
 			user.update((u) => (u ? { ...u, username: newUsername.trim() } : u));
 			newUsername = '';
 			showUsername = false;
-		} catch (e) {
-			usernameError = 'Request failed';
+		} catch (e: any) {
+			usernameError = e?.message || 'Request failed';
 		} finally {
 			usernameSaving = false;
 		}
@@ -61,25 +52,17 @@
 		passwordSaving = true;
 		passwordError = '';
 		try {
-			const res = await fetch(`${API_BASE}/change_password`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				credentials: 'include',
-				body: JSON.stringify({
-					curr_password: currentPassword,
-					new_password: newPassword
-				})
+			await op({
+				op: 'ChangePassword',
+				curr_password: currentPassword,
+				new_password: newPassword
 			});
-			if (!res.ok) {
-				passwordError = await res.text();
-				return;
-			}
 			currentPassword = '';
 			newPassword = '';
 			confirmPassword = '';
 			showPassword = false;
-		} catch (e) {
-			passwordError = 'Request failed';
+		} catch (e: any) {
+			passwordError = e?.message || 'Request failed';
 		} finally {
 			passwordSaving = false;
 		}

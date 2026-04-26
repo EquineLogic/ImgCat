@@ -20,7 +20,7 @@
 
 			if (res.ok) {
 				const data = await res.json();
-				user.set(data);
+				user.set({ username: data.username, session_id: data.session_id });
 				connectWebSocket();
 				if (publicRoutes.includes(page.url.pathname)) {
 					goto('/home');

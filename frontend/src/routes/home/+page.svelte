@@ -5,7 +5,7 @@
 	import FileGrid from '$lib/components/FileGrid.svelte';
 	import { folders, fetchFolders, breadcrumbs, navigateToBreadcrumb, resetToRoot } from '$lib/stores/folders';
 	import { files, fetchFiles } from '$lib/stores/files';
-	import { API_BASE } from '$lib/config';
+	import { op } from '$lib/api';
 
 	let loading = $state(true);
 	let editMode = $state(false);
@@ -166,25 +166,16 @@
 	}
 
 	async function persistOrder(ids: string[]) {
-		await fetch(`${API_BASE}/reorder`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			credentials: 'include',
-			body: JSON.stringify({ ids })
-		});
+		try {
+			await op({ op: 'Reorder', ids });
+		} catch {}
 	}
 
 	async function moveEntry(id: string, parentId: string) {
-		const res = await fetch(`${API_BASE}/move`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			credentials: 'include',
-			body: JSON.stringify({ id, parent_id: parentId })
-		});
-		if (res.ok) {
-			// Moved item is no longer in the current folder; refresh both lists
+		try {
+			await op({ op: 'MoveEntry', id, parent_id: parentId });
 			await Promise.all([fetchFolders(), fetchFiles()]);
-		}
+		} catch {}
 	}
 </script>
 

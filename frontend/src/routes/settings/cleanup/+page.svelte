@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { API_BASE } from '$lib/config';
+	import { op } from '$lib/api';
 
 	const options = [
 		{ value: 0, label: 'Never (keep trash forever)' },
@@ -22,13 +22,8 @@
 	async function load() {
 		if (isLoaded) return;
 		try {
-			const res = await fetch(`${API_BASE}/trash_retention`, {
-				credentials: 'include'
-			});
-			if (res.ok) {
-				const data = await res.json();
-				selected = data.days === 0 ? 0 : Number(data.days) || 30;
-			}
+			const r = await op<{ op: 'TrashRetention'; days: number }>({ op: 'GetTrashRetention' });
+			selected = r.days === 0 ? 0 : Number(r.days) || 30;
 		} catch (e) {
 			// keep default
 		} finally {
@@ -43,19 +38,10 @@
 		error = '';
 		message = '';
 		try {
-			const res = await fetch(`${API_BASE}/trash_retention`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				credentials: 'include',
-				body: JSON.stringify({ days: selected })
-			});
-			if (!res.ok) {
-				error = await res.text();
-				return;
-			}
+			await op({ op: 'SetTrashRetention', days: selected });
 			message = 'Saved';
-		} catch (e) {
-			error = 'Request failed';
+		} catch (e: any) {
+			error = e?.message || 'Request failed';
 		} finally {
 			saving = false;
 		}

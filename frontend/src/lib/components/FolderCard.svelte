@@ -1,9 +1,8 @@
 <script lang="ts">
 	import ContextMenu from './ContextMenu.svelte';
 	import RenameModal from './RenameModal.svelte';
-	import ShareModal from './ShareModal.svelte';
 	import { fetchFolders, openFolder } from '$lib/stores/folders';
-	import { API_BASE } from '$lib/config';
+	import { op } from '$lib/api';
 
 	let { name, id, readonly = false } = $props<{ name: string; id: string; readonly?: boolean }>();
 
@@ -15,7 +14,6 @@
 	let menuX = $state(0);
 	let menuY = $state(0);
 	let showRename = $state(false);
-	let showShare = $state(false);
 
 	function onContextMenu(e: MouseEvent) {
 		e.preventDefault();
@@ -25,37 +23,25 @@
 	}
 
 	async function submitRename(newName: string): Promise<string | null> {
-		const res = await fetch(`${API_BASE}/rename_folder`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			credentials: 'include',
-			body: JSON.stringify({ id, name: newName })
-		});
-		if (!res.ok) return await res.text();
+		try {
+			await op({ op: 'RenameFolder', id, name: newName });
+		} catch (e: any) {
+			return e?.message || 'Rename failed';
+		}
 		await fetchFolders();
 		return null;
 	}
 
 	async function deleteFolder() {
-		const res = await fetch(`${API_BASE}/delete_folder`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			credentials: 'include',
-			body: JSON.stringify({ id })
-		});
-		if (res.ok) {
+		try {
+			await op({ op: 'DeleteFolder', id });
 			await fetchFolders();
-		}
+		} catch {}
 	}
 
 	const menuItems = $derived(readonly
 		? []
 		: [
-				{
-					label: 'Share',
-					icon: 'share',
-					action: () => (showShare = true)
-				},
 				{
 					label: 'Rename',
 					icon: 'rename',
@@ -98,5 +84,3 @@
 <ContextMenu bind:open={menuOpen} x={menuX} y={menuY} items={menuItems} />
 
 <RenameModal bind:open={showRename} title="Rename Folder" currentName={name} onSubmit={submitRename} />
-
-<ShareModal bind:open={showShare} filesystemId={id} entryName={name} />

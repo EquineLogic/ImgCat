@@ -1,3 +1,5 @@
 import { writable } from 'svelte/store';
 
-export const user = writable<{ username: string } | null>(null);
+export type AuthUser = { username: string; session_id: string };
+
+export const user = writable<AuthUser | null>(null);

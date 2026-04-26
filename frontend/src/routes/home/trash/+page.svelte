@@ -5,7 +5,7 @@
 	import FileGrid from '$lib/components/FileGrid.svelte';
 	import Modal from '$lib/components/Modal.svelte';
 	import ContextMenu from '$lib/components/ContextMenu.svelte';
-	import { API_BASE } from '$lib/config';
+	import { op } from '$lib/api';
 
 	type TrashEntry = {
 		id: string;
@@ -25,21 +25,19 @@
 
 	async function load() {
 		loading = true;
-		const res = await fetch(`${API_BASE}/list_trash`, { credentials: 'include' });
-		if (res.ok) items = await res.json();
+		try {
+			const r = await op<{ op: 'TrashItems'; items: TrashEntry[] }>({ op: 'ListTrash' });
+			items = r.items;
+		} catch {}
 		loading = false;
 	}
 
 	async function restore(id: string) {
 		error = '';
-		const res = await fetch(`${API_BASE}/restore`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			credentials: 'include',
-			body: JSON.stringify({ id })
-		});
-		if (!res.ok) {
-			error = await res.text();
+		try {
+			await op({ op: 'RestoreEntry', id });
+		} catch (e: any) {
+			error = e?.message || 'Restore failed';
 			return;
 		}
 		await load();
@@ -58,14 +56,10 @@
 		error = '';
 		const id = purgeTarget.id;
 		purgeModalOpen = false;
-		const res = await fetch(`${API_BASE}/delete_trash_entry`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			credentials: 'include',
-			body: JSON.stringify({ id })
-		});
-		if (!res.ok) {
-			error = await res.text();
+		try {
+			await op({ op: 'DeleteTrashEntry', id });
+		} catch (e: any) {
+			error = e?.message || 'Delete failed';
 			return;
 		}
 		await load();

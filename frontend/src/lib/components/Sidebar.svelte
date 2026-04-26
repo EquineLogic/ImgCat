@@ -1,12 +1,12 @@
 <script lang="ts">
+	import { get } from 'svelte/store';
 	import { user } from '$lib/stores/auth';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import Modal from './Modal.svelte';
-	import { fetchFolders, currentFolderId, folders } from '$lib/stores/folders';
-	import { fetchFiles, files } from '$lib/stores/files';
-	import { pendingRequests, fetchPendingRequests, sendShareRequest } from '$lib/stores/sharing';
-	import { onMount } from 'svelte';
+	import { fetchFolders, currentFolderId } from '$lib/stores/folders';
+	import { fetchFiles } from '$lib/stores/files';
+	import { op } from '$lib/api';
 	import { API_BASE } from '$lib/config';
 
 	let { mode = 'home' }: { mode?: 'home' | 'settings' } = $props();
@@ -26,23 +26,12 @@
 	let uploadError = $state('');
 	let uploading = $state(false);
 
-	let showShareItem = $state(false);
-	let shareUsername = $state('');
-	let shareSelectedId = $state('');
-	let shareError = $state('');
-	let sharing = $state(false);
-
 	let mobileOpen = $state(false);
 	function closeMobile() {
 		mobileOpen = false;
 	}
 
 	const collapsed = $derived(sidebarWidth < COLLAPSE_THRESHOLD);
-	const pendingCount = $derived($pendingRequests.length);
-
-	onMount(() => {
-		fetchPendingRequests();
-	});
 
 	const navItems = $derived(
 		mode === 'home'
@@ -67,20 +56,6 @@
 						label: 'My Library',
 						href: '/home',
 						icon: 'library'
-					},
-					{
-						label: 'Share Item',
-						icon: 'share',
-						action: () => {
-							showShareItem = true;
-							closeMobile();
-						}
-					},
-					{
-						label: 'Shared with Me',
-						href: '/home/shared',
-						icon: 'share',
-						badge: pendingCount > 0 ? pendingCount : undefined
 					}
 				]
 			: [
@@ -116,14 +91,10 @@
 
 	async function createFolder() {
 		if (!folderName.trim()) return;
-		const res = await fetch(`${API_BASE}/create_folder`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			credentials: 'include',
-			body: JSON.stringify({ name: folderName.trim(), parent_id: $currentFolderId })
-		});
-		if (!res.ok) {
-			folderError = await res.text();
+		try {
+			await op({ op: 'CreateFolder', name: folderName.trim(), parent_id: $currentFolderId });
+		} catch (e: any) {
+			folderError = e?.message || 'Failed to create folder';
 			return;
 		}
 		folderName = '';
@@ -155,7 +126,7 @@
 				form.append('file', file);
 				form.append('name', file.name.replace(/\.[^.]+$/, ''));
 				if ($currentFolderId) form.append('parent_id', $currentFolderId);
-				const res = await fetch(`${API_BASE}/upload_file`, {
+				const res = await fetch(`${API_BASE}/upload_file_multipart`, {
 					method: 'POST',
 					credentials: 'include',
 					body: form
@@ -173,28 +144,6 @@
 			uploadError = 'Upload failed';
 		} finally {
 			uploading = false;
-		}
-	}
-
-	const shareableItems = $derived([
-		...$folders.map((f) => ({ id: f.id, name: f.name, type: 'folder' as const })),
-		...$files.map((f) => ({ id: f.id, name: f.name, type: 'file' as const }))
-	]);
-
-	async function shareItem() {
-		if (!shareSelectedId || !shareUsername.trim()) return;
-		sharing = true;
-		shareError = '';
-		try {
-			await sendShareRequest(shareSelectedId, shareUsername.trim());
-			shareUsername = '';
-			shareSelectedId = '';
-			shareError = '';
-			showShareItem = false;
-		} catch (e: any) {
-			shareError = e.message || 'Failed to share';
-		} finally {
-			sharing = false;
 		}
 	}
 
@@ -221,10 +170,12 @@
 	}
 
 	async function handleSignOut() {
-		await fetch(`${API_BASE}/signout`, {
-			method: 'POST',
-			credentials: 'include'
-		});
+		const u = get(user);
+		if (u?.session_id) {
+			try {
+				await op({ op: 'DeleteSession', id: u.session_id });
+			} catch {}
+		}
 		user.set(null);
 		goto('/signin');
 	}
@@ -408,12 +359,6 @@
 					<line x1="3" y1="18" x2="21" y2="18" />
 				</svg>
 			{/if}
-			{#if !mobileOpen && pendingCount > 0}
-				<span
-					class="absolute top-1 right-1 w-2 h-2 rounded-full
-					       bg-tw-pink shadow-[0_0_6px_rgba(237,67,141,0.8)]"
-				></span>
-			{/if}
 		</button>
 	</div>
 
@@ -445,12 +390,6 @@
 					>
 						{@render navIcon(item.icon)}
 						<span class="text-sm font-medium">{item.label}</span>
-						{#if 'badge' in item && item.badge}
-							<span
-								class="ml-auto px-1.5 py-0.5 text-[10px] font-bold rounded-full
-								       bg-tw-pink text-white leading-none min-w-4.5 text-center"
-							>{item.badge}</span>
-						{/if}
 					</a>
 				{/if}
 			{/each}
@@ -544,12 +483,7 @@
 					{#if !collapsed}
 						<span class="text-sm font-medium truncate">{item.label}</span>
 					{/if}
-					{#if item.badge && !collapsed}
-						<span
-							class="ml-auto px-1.5 py-0.5 text-[10px] font-bold rounded-full
-							       bg-tw-pink text-white leading-none min-w-[18px] text-center"
-						>{item.badge}</span>
-					{:else if isActive(item.href ?? '') && !collapsed}
+					{#if isActive(item.href ?? '') && !collapsed}
 						<span
 							class="ml-auto w-1.5 h-1.5 rounded-full bg-tw-neon
 							       shadow-[0_0_6px_rgba(0,245,255,0.6)]"
@@ -743,79 +677,4 @@
 	</div>
 </Modal>
 
-<Modal bind:open={showShareItem} title="Share Item">
-	<form
-		onsubmit={(e) => { e.preventDefault(); shareItem(); }}
-		class="flex flex-col gap-4"
-	>
-		<div class="flex flex-col gap-1.5">
-			<span class="text-tw-yellow text-sm">Select an item</span>
-			{#if shareableItems.length === 0}
-				<p class="text-sm text-white/30">No items in this folder to share.</p>
-			{:else}
-				<div class="max-h-48 overflow-y-auto rounded-xl border border-tw-purple/30 bg-tw-darkblue/50 p-1.5 flex flex-col gap-0.5">
-					{#each shareableItems as item}
-						<button
-							type="button"
-							onclick={() => (shareSelectedId = item.id)}
-							class="flex items-center gap-3 px-3 py-2 rounded-lg text-left
-							       transition-all duration-150 cursor-pointer
-							       {shareSelectedId === item.id
-								? 'bg-tw-purple/20 border border-tw-neon/40 text-white'
-								: 'border border-transparent text-white/60 hover:text-white hover:bg-white/5'}"
-						>
-							{#if item.type === 'folder'}
-								<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-5 h-5 shrink-0 text-tw-yellow/60">
-									<path d="M2 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2z" />
-								</svg>
-							{:else}
-								<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-5 h-5 shrink-0 text-tw-pink/60">
-									<rect x="3" y="3" width="18" height="18" rx="2" />
-									<circle cx="8.5" cy="8.5" r="1.5" />
-									<path d="M21 15l-5-5L5 21" />
-								</svg>
-							{/if}
-							<span class="text-sm truncate">{item.name}</span>
-							{#if shareSelectedId === item.id}
-								<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="w-4 h-4 ml-auto shrink-0 text-tw-neon">
-									<polyline points="20 6 9 17 4 12" />
-								</svg>
-							{/if}
-						</button>
-					{/each}
-				</div>
-			{/if}
-		</div>
-
-		<label class="flex flex-col gap-1">
-			<span class="text-tw-yellow text-sm">Share with username</span>
-			<input
-				type="text"
-				bind:value={shareUsername}
-				placeholder="Enter username"
-				class="rounded-lg px-4 py-2.5 bg-tw-darkblue/80
-				       border border-tw-purple/40 text-white
-				       placeholder:text-white/30
-				       focus:outline-none focus:ring-2 focus:ring-tw-neon"
-			/>
-		</label>
-
-		{#if shareError}
-			<p class="text-sm text-red-400">{shareError}</p>
-		{/if}
-
-		<button
-			type="submit"
-			disabled={!shareSelectedId || !shareUsername.trim() || sharing}
-			class="rounded-lg py-2.5 font-semibold text-white
-			       transition-colors duration-200
-			       focus:outline-none focus:ring-2 focus:ring-tw-neon
-			       {shareSelectedId && shareUsername.trim() && !sharing
-				? 'bg-tw-purple hover:bg-tw-pink cursor-pointer'
-				: 'bg-white/10 text-white/30 cursor-not-allowed'}"
-		>
-			{sharing ? 'Sharing...' : 'Share'}
-		</button>
-	</form>
-</Modal>
 {/if}
