@@ -1,4 +1,10 @@
 import { WS_BASE } from '$lib/config';
+import { fetchGroups } from './groups';
+
+type GroupEvent =
+	| { event: 'NewGroupInvite'; group_id: string }
+	| { event: 'AcceptedGroupInvite'; group_id: string; user_id: string }
+	| { event: 'DeniedGroupInvite'; group_id: string; user_id: string };
 
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -16,8 +22,13 @@ export function connectWebSocket() {
 		reconnectDelay = 1000;
 	};
 
-	ws.onmessage = () => {
-		// Group/sharing events are not yet wired up on the frontend.
+	ws.onmessage = (ev) => {
+		try {
+			const event = JSON.parse(ev.data) as GroupEvent;
+			handleEvent(event);
+		} catch {
+			// ignore malformed messages
+		}
 	};
 
 	ws.onclose = (ev) => {
@@ -51,5 +62,18 @@ export function disconnectWebSocket() {
 	if (ws) {
 		ws.close();
 		ws = null;
+	}
+}
+
+function handleEvent(event: GroupEvent) {
+	switch (event.event) {
+		case 'NewGroupInvite':
+		case 'AcceptedGroupInvite':
+		case 'DeniedGroupInvite':
+			// All three change membership state visible via ListGroups.
+			// fetchGroups() is a no-op when in group context, which is fine —
+			// the invite badge / list only matter in personal context anyway.
+			fetchGroups();
+			break;
 	}
 }

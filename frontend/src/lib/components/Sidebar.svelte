@@ -4,9 +4,11 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import Modal from './Modal.svelte';
-	import { fetchFolders, currentFolderId } from '$lib/stores/folders';
+	import { fetchFolders, currentFolderId, resetToRoot } from '$lib/stores/folders';
 	import { fetchFiles } from '$lib/stores/files';
 	import { op } from '$lib/api';
+	import { groupContext } from '$lib/stores/groupContext';
+	import { pendingInvites } from '$lib/stores/groups';
 	import { API_BASE } from '$lib/config';
 
 	let { mode = 'home' }: { mode?: 'home' | 'settings' } = $props();
@@ -32,8 +34,17 @@
 	}
 
 	const collapsed = $derived(sidebarWidth < COLLAPSE_THRESHOLD);
+	const pendingCount = $derived($pendingInvites.length);
 
-	const navItems = $derived(
+	type NavItem = {
+		label: string;
+		icon: string;
+		href?: string;
+		action?: () => void;
+		badge?: number;
+	};
+
+	const navItems = $derived<NavItem[]>(
 		mode === 'home'
 			? [
 					{
@@ -56,6 +67,12 @@
 						label: 'My Library',
 						href: '/home',
 						icon: 'library'
+					},
+					{
+						label: 'Groups',
+						href: '/home/groups',
+						icon: 'group',
+						badge: pendingCount > 0 ? pendingCount : undefined
 					}
 				]
 			: [
@@ -121,14 +138,18 @@
 		uploading = true;
 		uploadError = '';
 		try {
+			const gid = $groupContext?.group_id;
 			for (const file of uploadFiles) {
 				const form = new FormData();
 				form.append('file', file);
 				form.append('name', file.name.replace(/\.[^.]+$/, ''));
 				if ($currentFolderId) form.append('parent_id', $currentFolderId);
+				const headers: Record<string, string> = {};
+				if (gid) headers['X-Group'] = gid;
 				const res = await fetch(`${API_BASE}/upload_file_multipart`, {
 					method: 'POST',
 					credentials: 'include',
+					headers,
 					body: form
 				});
 				if (!res.ok) {
@@ -176,6 +197,7 @@
 				await op({ op: 'DeleteSession', id: u.session_id });
 			} catch {}
 		}
+		groupContext.set(null);
 		user.set(null);
 		goto('/signin');
 	}
@@ -305,6 +327,22 @@
 			<rect x="3" y="14" width="7" height="7" rx="1" />
 			<rect x="14" y="14" width="7" height="7" rx="1" />
 		</svg>
+	{:else if icon === 'group'}
+		<svg
+			xmlns="http://www.w3.org/2000/svg"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="1.8"
+			stroke-linecap="round"
+			stroke-linejoin="round"
+			class="w-5 h-5 shrink-0"
+		>
+			<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+			<circle cx="9" cy="7" r="4" />
+			<path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+			<path d="M16 3.13a4 4 0 0 1 0 7.75" />
+		</svg>
 	{/if}
 {/snippet}
 
@@ -359,6 +397,12 @@
 					<line x1="3" y1="18" x2="21" y2="18" />
 				</svg>
 			{/if}
+			{#if !mobileOpen && pendingCount > 0}
+				<span
+					class="absolute top-1 right-1 w-2 h-2 rounded-full
+					       bg-tw-pink shadow-[0_0_6px_rgba(237,67,141,0.8)]"
+				></span>
+			{/if}
 		</button>
 	</div>
 
@@ -390,6 +434,12 @@
 					>
 						{@render navIcon(item.icon)}
 						<span class="text-sm font-medium">{item.label}</span>
+						{#if 'badge' in item && item.badge}
+							<span
+								class="ml-auto px-1.5 py-0.5 text-[10px] font-bold rounded-full
+								       bg-tw-pink text-white leading-none min-w-4.5 text-center"
+							>{item.badge}</span>
+						{/if}
 					</a>
 				{/if}
 			{/each}
@@ -483,7 +533,17 @@
 					{#if !collapsed}
 						<span class="text-sm font-medium truncate">{item.label}</span>
 					{/if}
-					{#if isActive(item.href ?? '') && !collapsed}
+					{#if item.badge && !collapsed}
+						<span
+							class="ml-auto px-1.5 py-0.5 text-[10px] font-bold rounded-full
+							       bg-tw-pink text-white leading-none min-w-4.5 text-center"
+						>{item.badge}</span>
+					{:else if item.badge && collapsed}
+						<span
+							class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-tw-pink
+							       shadow-[0_0_6px_rgba(237,67,141,0.8)]"
+						></span>
+					{:else if isActive(item.href ?? '') && !collapsed}
 						<span
 							class="ml-auto w-1.5 h-1.5 rounded-full bg-tw-neon
 							       shadow-[0_0_6px_rgba(0,245,255,0.6)]"
@@ -521,6 +581,41 @@
 
 	<!-- User section -->
 	<div class="border-t border-white/10 px-3 py-4 shrink-0">
+		{#if $groupContext}
+			<button
+				onclick={async () => {
+					groupContext.set(null);
+					resetToRoot();
+					await goto('/home');
+					await Promise.all([fetchFolders(), fetchFiles()]);
+				}}
+				title="Acting as @{$groupContext.group_username} — click to switch back to personal"
+				class="w-full flex items-center gap-2 px-2 py-1.5 mb-2 rounded-xl
+				       border border-tw-yellow/40 bg-tw-yellow/10 text-tw-yellow
+				       hover:bg-tw-yellow/20 cursor-pointer transition-colors duration-150
+				       overflow-hidden whitespace-nowrap
+				       {collapsed ? 'justify-center' : ''}"
+			>
+				<svg
+					xmlns="http://www.w3.org/2000/svg"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="1.8"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					class="w-4 h-4 shrink-0"
+				>
+					<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+					<circle cx="9" cy="7" r="4" />
+					<path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+					<path d="M16 3.13a4 4 0 0 1 0 7.75" />
+				</svg>
+				{#if !collapsed}
+					<span class="text-xs font-medium truncate">@{$groupContext.group_username}</span>
+				{/if}
+			</button>
+		{/if}
 		<a
 			href="/settings"
 			class="flex items-center gap-3 px-2 py-2 mb-2 rounded-xl no-underline

@@ -4,6 +4,7 @@
 	import { page } from '$app/state';
 	import { user } from '$lib/stores/auth';
 	import { connectWebSocket, disconnectWebSocket } from '$lib/stores/websocket';
+	import { fetchGroups } from '$lib/stores/groups';
 	import favicon from '$lib/assets/favicon.svg';
 	import { API_BASE } from '$lib/config';
 	import "../app.css";
@@ -20,8 +21,14 @@
 
 			if (res.ok) {
 				const data = await res.json();
-				user.set({ username: data.username, session_id: data.session_id });
+				user.set({ user_id: data.user_id, username: data.username, session_id: data.session_id });
 				connectWebSocket();
+
+				// Populate the invite badge / groups list. No-op when in group context
+				// (ListGroups is user-only); auto-recovery for stale group context
+				// happens reactively in op() if the backend rejects X-Group.
+				fetchGroups();
+
 				if (publicRoutes.includes(page.url.pathname)) {
 					goto('/home');
 				}

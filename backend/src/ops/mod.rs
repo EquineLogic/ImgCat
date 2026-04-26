@@ -95,9 +95,18 @@ pub enum OpArgs {
         name: String,
     },
     ListGroups {},
+    /// List members of the current group (group-only — uses X-Group header).
+    ListGroupMembers {},
     AcceptGroupInvite { group_id: Uuid },
     DenyGroupInvite { group_id: Uuid },
     InviteGroupMember { target_id: Uuid, perms: Vec<String> },
+    /// Remove a member (or pending invitee) from the current group. Group-only.
+    RemoveGroupMember { user_id: Uuid },
+    /// Replace a member's perms in the current group. Group-only.
+    UpdateGroupMemberPerms { user_id: Uuid, perms: Vec<String> },
+
+    // User lookup (used by invite-by-username flow)
+    LookupUser { username: String },
 }
 
 impl OpArgs {
@@ -133,9 +142,15 @@ impl OpArgs {
             // --- Groups ---
             Self::CreateGroup { .. }          => None, // user-only op
             Self::ListGroups { .. }           => None, // user-only op
+            Self::ListGroupMembers { .. }     => None, // group-only op (membership enforced by extractor)
             Self::AcceptGroupInvite { .. }    => None, // user-only op
             Self::DenyGroupInvite { .. }      => None, // user-only op
-            Self::InviteGroupMember { .. }    => Some("group_members.invite"),
+            Self::InviteGroupMember { .. }       => Some("group_members.invite"),
+            Self::RemoveGroupMember { .. }       => Some("group_members.remove"),
+            Self::UpdateGroupMemberPerms { .. }  => Some("group_members.update_perms"),
+
+            // --- Lookup ---
+            Self::LookupUser { .. }           => None, // any logged-in user
         }
     }
 }
@@ -176,6 +191,13 @@ pub enum OpSuccess {
     },
     CreatedGroup {
         group_id: Uuid
+    },
+
+    // Lookup
+    FoundUser {
+        user_id: Uuid,
+        username: String,
+        name: String,
     },
 
     // Ok
@@ -930,28 +952,78 @@ impl AppData {
                 }
 
                 let group_members: Vec<GroupMember> = sqlx::query_as(
-                    "SELECT 
-                            gm.id, 
-                            gm.group_id, 
+                    "SELECT
+                            gm.id,
+                            gm.group_id,
                             gm.group_type,
-                            u_group.name AS group_name,           
-                            u_group.username AS group_username,  
+                            u_group.name AS group_name,
+                            u_group.username AS group_username,
                             gm.user_id,
                             gm.user_type,
+                            u_member.username AS member_username,
+                            u_member.name AS member_name,
                             gm.sender_id,
                             gm.sender_type,
-                            u.username AS sender_username, -- The new field
-                            gm.perms, 
-                            gm.state, 
+                            u_sender.username AS sender_username,
+                            gm.perms,
+                            gm.state,
                             gm.created_at
                         FROM group_members gm
                         JOIN users u_group ON gm.group_id = u_group.id AND gm.group_type = u_group.user_type
-                        JOIN users u ON gm.sender_id = u.id AND gm.sender_type = u.user_type
+                        JOIN users u_member ON gm.user_id = u_member.id AND gm.user_type = u_member.user_type
+                        LEFT JOIN users u_sender ON gm.sender_id = u_sender.id AND gm.sender_type = u_sender.user_type
                         WHERE gm.user_id = $1
                         ORDER BY gm.created_at DESC
                     "
                 )
                 .bind(uid.account_id())
+                .fetch_all(&self.pool)
+                .await?;
+
+                Ok(OpSuccess::GroupMembers { group_members })
+            }
+
+            OpArgs::ListGroupMembers {  } => {
+                let Some(gid) = user_id else {
+                    return Err(OpError::UserNotLoggedIn);
+                };
+                if !gid.is_group() {
+                    return Err(OpError::GroupOnlyOp)
+                }
+
+                // gid.account_id() is the group_id (the LoggedInUser extractor
+                // already verified the caller is an accepted member of it).
+                let group_id = gid.account_id();
+
+                // Same row shape as ListGroups so the frontend can reuse the
+                // GroupMember type. u_member is the actual member (gm.user_id);
+                // sender JOIN is left so absent senders don't drop the row.
+                let group_members: Vec<GroupMember> = sqlx::query_as(
+                    "SELECT
+                            gm.id,
+                            gm.group_id,
+                            gm.group_type,
+                            u_group.name AS group_name,
+                            u_group.username AS group_username,
+                            gm.user_id,
+                            gm.user_type,
+                            u_member.username AS member_username,
+                            u_member.name AS member_name,
+                            gm.sender_id,
+                            gm.sender_type,
+                            u_sender.username AS sender_username,
+                            gm.perms,
+                            gm.state,
+                            gm.created_at
+                        FROM group_members gm
+                        JOIN users u_group ON gm.group_id = u_group.id AND gm.group_type = u_group.user_type
+                        JOIN users u_member ON gm.user_id = u_member.id AND gm.user_type = u_member.user_type
+                        LEFT JOIN users u_sender ON gm.sender_id = u_sender.id AND gm.sender_type = u_sender.user_type
+                        WHERE gm.group_id = $1
+                        ORDER BY gm.state, gm.created_at DESC
+                    "
+                )
+                .bind(group_id)
                 .fetch_all(&self.pool)
                 .await?;
 
@@ -1052,6 +1124,91 @@ impl AppData {
                 .await?;
 
                 self.notify.send_to(target_id, SharingEvent::NewGroupInvite { group_id });
+
+                Ok(OpSuccess::Ok)
+            }
+
+            OpArgs::RemoveGroupMember { user_id: target_user_id } => {
+                let Some(gid) = user_id else {
+                    return Err(OpError::UserNotLoggedIn);
+                };
+                if !gid.is_group() {
+                    return Err(OpError::GroupOnlyOp)
+                }
+
+                // Use a dedicated "leave group" flow for self-removal — this op
+                // is for managing other people, and conflating the two makes it
+                // too easy for an admin to accidentally lock themselves out.
+                if target_user_id == gid.real_account_id() {
+                    return Err(OpError::BadRequest {
+                        reason: "Cannot remove yourself from the group via this op".into()
+                    });
+                }
+
+                let group_id = gid.account_id();
+
+                let res = sqlx::query(
+                    "DELETE FROM group_members WHERE group_id = $1 AND user_id = $2"
+                )
+                .bind(group_id)
+                .bind(target_user_id)
+                .execute(&self.pool)
+                .await?;
+
+                if res.rows_affected() == 0 {
+                    return Err(OpError::EntityNotFound { reason: "User is not a member of this group" });
+                }
+
+                Ok(OpSuccess::Ok)
+            }
+
+            OpArgs::UpdateGroupMemberPerms { user_id: target_user_id, perms } => {
+                let Some(gid) = user_id else {
+                    return Err(OpError::UserNotLoggedIn);
+                };
+                if !gid.is_group() {
+                    return Err(OpError::GroupOnlyOp)
+                }
+
+                // Same rationale as RemoveGroupMember: don't let admins
+                // accidentally demote themselves out of admin via this op.
+                if target_user_id == gid.real_account_id() {
+                    return Err(OpError::BadRequest {
+                        reason: "Cannot change your own perms via this op".into()
+                    });
+                }
+
+                let group_id = gid.account_id();
+
+                // Fetch the target's current perms so kittycat can validate the diff.
+                let row = sqlx::query(
+                    "SELECT perms FROM group_members WHERE group_id = $1 AND user_id = $2"
+                )
+                .bind(group_id)
+                .bind(target_user_id)
+                .fetch_optional(&self.pool)
+                .await?;
+
+                let Some(row) = row else {
+                    return Err(OpError::EntityNotFound { reason: "User is not a member of this group" });
+                };
+
+                let current_perms: Vec<String> = row.try_get(0)?;
+
+                let Some(gp) = user_perms else {
+                    return Err("internal error: no user_perms found".to_string().into())
+                };
+
+                check_patch_changes_str(&gp.perms, &current_perms, &perms)?;
+
+                sqlx::query(
+                    "UPDATE group_members SET perms = $1 WHERE group_id = $2 AND user_id = $3"
+                )
+                .bind(&perms)
+                .bind(group_id)
+                .bind(target_user_id)
+                .execute(&self.pool)
+                .await?;
 
                 Ok(OpSuccess::Ok)
             }
@@ -1222,6 +1379,33 @@ impl AppData {
                     .await?;
 
                 Ok(OpSuccess::Ok)
+            }
+
+            // ─── Lookup ─────────────────────────────────────────────
+            OpArgs::LookupUser { username } => {
+                if user_id.is_none() {
+                    return Err(OpError::UserNotLoggedIn);
+                }
+
+                #[derive(sqlx::FromRow)]
+                struct Row {
+                    id: Uuid,
+                    username: String,
+                    name: String,
+                }
+
+                let row: Option<Row> = sqlx::query_as(
+                    "SELECT id, username, name FROM users WHERE username = $1 AND user_type = 'user'"
+                )
+                .bind(&username)
+                .fetch_optional(&self.pool)
+                .await?;
+
+                let Some(row) = row else {
+                    return Err(OpError::EntityNotFound { reason: "No user with that username" });
+                };
+
+                Ok(OpSuccess::FoundUser { user_id: row.id, username: row.username, name: row.name })
             }
         }
     }

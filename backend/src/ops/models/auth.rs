@@ -110,6 +110,7 @@ impl FromRequestParts<AppData> for LoggedInUser {
             JOIN users u ON u.id = m.group_id 
             WHERE m.user_id = $1 AND m.group_id = $2 AND m.state = 'accepted'"
                 )
+                .bind(&row.id)
                 .bind(&id)
                 .fetch_optional(&state.pool)
                 .await
@@ -164,6 +165,8 @@ pub struct GroupMember {
     // Target User
     pub user_id: Uuid,
     pub user_type: String,  // Defaults to 'user'
+    pub member_username: Option<String>,
+    pub member_name: Option<String>,
 
     // Sender
     pub sender_id: Option<Uuid>,

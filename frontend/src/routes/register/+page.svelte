@@ -60,7 +60,7 @@
 			const meRes = await fetch(`${API_BASE}/check_auth`, { credentials: 'include' });
 			if (!meRes.ok) throw new Error(await meRes.text());
 			const me = await meRes.json();
-			user.set({ username: me.username, session_id: me.session_id });
+			user.set({ user_id: me.user_id, username: me.username, session_id: me.session_id });
 			goto('/home');
 		} catch (e: any) {
 			message = e?.message || 'Registration failed';
