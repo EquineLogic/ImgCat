@@ -56,6 +56,11 @@ async fn handle_socket(mut socket: WebSocket, app: AppData) {
         return;
     };
 
+    // Push ready status
+    if socket.send(Message::Text("READY".into())).await.is_err() {
+        return;
+    }
+
     let mut rx = app.notify.subscribe(user_id);
 
     loop {

@@ -34,6 +34,9 @@ export function connectWebSocket() {
 	};
 
 	ws.onmessage = (ev) => {
+		if (ev.data == "READY") {
+			console.log("websocket ready!")
+		}
 		try {
 			const event = JSON.parse(ev.data) as GroupEvent;
 			handleEvent(event);
