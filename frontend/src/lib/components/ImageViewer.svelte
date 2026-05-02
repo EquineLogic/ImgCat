@@ -1,8 +1,7 @@
 <script lang="ts">
-	import RenameModal from './RenameModal.svelte';
-	import ConfirmModal from './ConfirmModal.svelte';
 	import { fetchFiles } from '$lib/stores/files';
 	import { fetchClient, op } from '$lib/api';
+	import { openRenameModal, openConfirmModal } from '$lib/stores/ui';
 
 	let { open = $bindable(false), id, name, url: fileurl, readonly = false } = $props<{
 		open: boolean;
@@ -26,8 +25,6 @@
 
 	// UI state
 	let menuOpen = $state(false);
-	let showRename = $state(false);
-	let deleting = $state(false);
 
 	function close() {
 		open = false;
@@ -42,9 +39,7 @@
 		if (!open) return;
 		if (e.key === 'Escape') {
 			if (menuOpen) menuOpen = false;
-			else if (showRename || deleting) {
-				// let modals handle their own esc
-			} else close();
+			else close();
 		} else if (e.key === '0') {
 			scale = 1;
 			tx = 0;
@@ -109,7 +104,7 @@
 
 	function openRename() {
 		menuOpen = false;
-		showRename = true;
+		openRenameModal('Rename File', name, submitRename);
 	}
 
 	async function submitRename(newName: string): Promise<string | null> {
@@ -123,8 +118,14 @@
 	}
 
 	function confirmDelete() {
-		deleting = true;
 		menuOpen = false;
+		openConfirmModal(
+			'Delete File',
+			`Move ${name} to trash? You can restore it later.`,
+			'Delete',
+			true,
+			submitDelete
+		);
 	}
 
 	async function submitDelete() {
@@ -142,7 +143,7 @@
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<div
-		class="fixed inset-0 z-40 bg-black/90 backdrop-blur-sm flex items-center justify-center overflow-hidden"
+		class="fixed inset-0 z-40 bg-black/90 flex items-center justify-center overflow-hidden"
 		onclick={onBackdropClick}
 		onwheel={onWheel}
 	>
@@ -268,17 +269,3 @@
 		</div>
 	</div>
 {/if}
-
-<RenameModal bind:open={showRename} title="Rename File" currentName={name} onSubmit={submitRename} />
-
-<ConfirmModal
-	bind:open={deleting}
-	title="Delete File"
-	confirmLabel="Delete"
-	danger
-	onConfirm={submitDelete}
->
-	<p class="text-sm text-white/70">
-		Move <span class="text-white font-medium">{name}</span> to trash? You can restore it later.
-	</p>
-</ConfirmModal>

@@ -3,12 +3,20 @@
 	import FolderCard from '$lib/components/FolderCard.svelte';
 	import ImageCard from '$lib/components/ImageCard.svelte';
 	import FileGrid from '$lib/components/FileGrid.svelte';
-	import { folders, fetchFolders, breadcrumbs, navigateToBreadcrumb, resetToRoot } from '$lib/stores/folders';
+	import { folders, fetchFolders, currentFolderId, breadcrumbs, navigateToBreadcrumb, resetToRoot } from '$lib/stores/folders';
 	import { files, fetchFiles } from '$lib/stores/files';
+	import { user, updatePreference } from '$lib/stores/auth';
 	import { op } from '$lib/api';
 
 	let loading = $state(true);
 	let editMode = $state(false);
+	let selectedIds = $state(new Set<string>());
+
+	$effect(() => {
+		if (!editMode) {
+			selectedIds = new Set();
+		}
+	});
 
 	// Drag state
 	let dragging = $state(false);
@@ -16,11 +24,16 @@
 	let dragId: string | null = $state(null);
 	let dragEl: HTMLElement | null = $state(null);
 	let dragClone: HTMLElement | null = $state(null);
-	let dropTargetFolderId: string | null = $state(null);
+	let dropTargetFolderId: string | null | undefined = $state(undefined);
 	let startX = 0;
 	let startY = 0;
 	let offsetX = 0;
 	let offsetY = 0;
+
+	// Breadcrumb resize state
+	let resizingBreadcrumb = $state(false);
+	let initialBreadcrumbSize = 0;
+	let startDragY = 0;
 
 	onMount(async () => {
 		resetToRoot();
@@ -45,6 +58,16 @@
 	}
 
 	function onPointerMove(e: PointerEvent) {
+		if (resizingBreadcrumb) {
+			const dy = e.clientY - startDragY;
+			const newSize = Math.max(10, Math.min(48, initialBreadcrumbSize + dy));
+			// Update local state immediately for smooth UI
+			if ($user) {
+				$user.preferences.breadcrumb_size = newSize;
+			}
+			return;
+		}
+
 		if (!dragId || !dragEl) return;
 
 		// Start dragging after moving a few pixels (prevents accidental drags)
@@ -54,6 +77,11 @@
 			if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
 
 			dragging = true;
+
+			// If dragging an item that isn't part of current selection, make it the only selected item
+			if (!selectedIds.has(dragId)) {
+				selectedIds = new Set([dragId]);
+			}
 
 			// Create a floating clone of the dragged element
 			const rect = dragEl.getBoundingClientRect();
@@ -68,6 +96,15 @@
 			dragClone.style.transition = 'transform 0.15s, box-shadow 0.15s';
 			dragClone.style.boxShadow = '0 12px 40px rgba(0,0,0,0.4)';
 			dragClone.style.borderRadius = '12px';
+
+			// Add a badge if multiple items are being moved
+			if (selectedIds.size > 1) {
+				const badge = document.createElement('div');
+				badge.className = 'absolute -top-3 -right-3 bg-tw-neon text-tw-darkblue w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shadow-lg border-2 border-tw-darkblue';
+				badge.textContent = selectedIds.size.toString();
+				dragClone.appendChild(badge);
+			}
+
 			document.body.appendChild(dragClone);
 		}
 
@@ -77,80 +114,95 @@
 		}
 
 		// Check whether we're hovering a folder (move target).
-		// Works for both file and folder drags; a folder can't be dropped on itself.
-		const folderContainer = document.querySelector('[data-droppable="folders"]');
-		let hoveredFolder: string | null = null;
-		if (folderContainer) {
-			const folderChildren = Array.from(folderContainer.children) as HTMLElement[];
-			for (let i = 0; i < folderChildren.length; i++) {
-				const candidateId = $folders[i]?.id ?? null;
-				if (candidateId === dragId) continue;
-				const rect = folderChildren[i].getBoundingClientRect();
-				if (
-					e.clientX >= rect.left && e.clientX <= rect.right &&
-					e.clientY >= rect.top && e.clientY <= rect.bottom
-				) {
-					hoveredFolder = candidateId;
-					break;
+		let hoveredFolder: string | null | undefined = undefined;
+		
+		// Use elementFromPoint for much better performance than iterating all rects
+		const elementUnderCursor = document.elementFromPoint(e.clientX, e.clientY);
+		if (elementUnderCursor) {
+			const targetEl = elementUnderCursor.closest('[data-type="folder"]');
+			if (targetEl) {
+				const candidateId = targetEl.getAttribute('data-id');
+				// candidateId might be null or empty string if dropping to root
+				const normalizedId = candidateId === '' ? null : candidateId;
+				if (normalizedId !== $currentFolderId && !selectedIds.has(normalizedId ?? '')) {
+					hoveredFolder = normalizedId;
 				}
 			}
 		}
+
 		dropTargetFolderId = hoveredFolder;
-		// Skip reorder logic while hovering a folder so highlight stays visible
-		if (dropTargetFolderId) return;
+		// Skip reorder logic while hovering a folder or if moving multiple items
+		if (dropTargetFolderId !== undefined || selectedIds.size > 1) return;
 
 		// Find which item the cursor is over and reorder
 		const list = dragType === 'folder' ? $folders : $files;
-		const container = dragType === 'folder'
-			? document.querySelector('[data-droppable="folders"]')
-			: document.querySelector('[data-droppable="files"]');
+		const containerSelector = dragType === 'folder'
+			? '[data-droppable="folders"]'
+			: '[data-droppable="files"]';
 
-		if (!container) return;
+		if (elementUnderCursor) {
+			const targetEl = elementUnderCursor.closest(`[data-type="${dragType}"]`);
+			if (targetEl && targetEl.parentElement?.closest(containerSelector)) {
+				const targetId = targetEl.getAttribute('data-id');
+				if (targetId && targetId !== dragId) {
+					const fromIndex = list.findIndex((item) => item.id === dragId);
+					const toIndex = list.findIndex((item) => item.id === targetId);
 
-		const fromIndex = list.findIndex((item) => item.id === dragId);
-		if (fromIndex === -1) return;
+					if (fromIndex !== -1 && toIndex !== -1) {
+						// Only reorder if we've moved past the center of the target
+						const rect = targetEl.getBoundingClientRect();
+						const isAfter = toIndex > fromIndex;
+						const threshold = isAfter 
+							? e.clientX > rect.left + rect.width * 0.5 
+							: e.clientX < rect.left + rect.width * 0.5;
 
-		const children = Array.from(container.children) as HTMLElement[];
-		for (let i = 0; i < children.length; i++) {
-			if (i === fromIndex) continue;
-			const rect = children[i].getBoundingClientRect();
-			const centerX = rect.left + rect.width / 2;
-			const centerY = rect.top + rect.height / 2;
+						if (threshold) {
+							const newList = [...list];
+							const [item] = newList.splice(fromIndex, 1);
+							newList.splice(toIndex, 0, item);
 
-			// Only swap when the cursor has crossed past the center of the target
-			// (prevents jitter when hovering near the edges)
-			const crossedFromLeft = i > fromIndex && e.clientX > centerX && e.clientY >= rect.top && e.clientY <= rect.bottom;
-			const crossedFromRight = i < fromIndex && e.clientX < centerX && e.clientY >= rect.top && e.clientY <= rect.bottom;
-			const crossedFromAbove = i > fromIndex && e.clientY > centerY && e.clientX >= rect.left && e.clientX <= rect.right;
-			const crossedFromBelow = i < fromIndex && e.clientY < centerY && e.clientX >= rect.left && e.clientX <= rect.right;
-
-			if (crossedFromLeft || crossedFromRight || crossedFromAbove || crossedFromBelow) {
-				const newList = [...list];
-				const [item] = newList.splice(fromIndex, 1);
-				newList.splice(i, 0, item);
-
-				if (dragType === 'folder') {
-					folders.set(newList);
-				} else {
-					files.set(newList as any);
+							if (dragType === 'folder') {
+								folders.set(newList);
+							} else {
+								files.set(newList as any);
+							}
+						}
+					}
 				}
-				break;
 			}
 		}
 	}
 
 	function onPointerUp() {
+		if (resizingBreadcrumb) {
+			resizingBreadcrumb = false;
+			if ($user) {
+				updatePreference('breadcrumb_size', $user.preferences.breadcrumb_size);
+			}
+			return;
+		}
+
 		if (!dragId) return;
 
 		if (dragging) {
-			if (dropTargetFolderId) {
-				// Move the dragged item into the hovered folder
-				moveEntry(dragId, dropTargetFolderId);
-			} else if (dragType === 'folder') {
-				persistOrder($folders.map((f) => f.id));
-			} else if (dragType === 'file') {
-				persistOrder($files.map((f) => f.id));
+			if (dropTargetFolderId !== undefined) {
+				moveEntries(Array.from(selectedIds), dropTargetFolderId);
+			} else if (selectedIds.size === 1) {
+				if (dragType === 'folder') {
+					persistOrder($folders.map((f) => f.id));
+				} else if (dragType === 'file') {
+					persistOrder($files.map((f) => f.id));
+				}
 			}
+		} else {
+			// Toggle selection if we just clicked
+			if (selectedIds.has(dragId)) {
+				selectedIds.delete(dragId);
+			} else {
+				selectedIds.add(dragId);
+			}
+			// Force refresh since Svelte 5 Set state needs re-assignment or fine-grained reactivity
+			selectedIds = new Set(selectedIds);
 		}
 
 		// Cleanup
@@ -162,7 +214,7 @@
 		dragId = null;
 		dragType = null;
 		dragEl = null;
-		dropTargetFolderId = null;
+		dropTargetFolderId = undefined;
 	}
 
 	async function persistOrder(ids: string[]) {
@@ -171,12 +223,22 @@
 		} catch {}
 	}
 
-	async function moveEntry(id: string, parentId: string) {
+	async function moveEntries(ids: string[], parentId: string | null) {
 		try {
-			await op({ op: 'MoveEntry', id, parent_id: parentId });
+			await op({ op: 'MoveEntries', ids, parent_id: parentId });
+			selectedIds.clear();
+			selectedIds = new Set();
 			await Promise.all([fetchFolders(), fetchFiles()]);
 		} catch {}
 	}
+
+	function startResize(e: PointerEvent) {
+		e.preventDefault();
+		resizingBreadcrumb = true;
+		initialBreadcrumbSize = $user?.preferences.breadcrumb_size ?? 14;
+		startDragY = e.clientY;
+	}
+
 </script>
 
 <svelte:window onpointermove={onPointerMove} onpointerup={onPointerUp} />
@@ -185,37 +247,66 @@
 	<div class="flex items-center justify-between mb-6">
 		<!-- Breadcrumbs -->
 		{#if $breadcrumbs.length > 1}
-			<nav class="flex items-center gap-1.5 text-sm">
-				{#each $breadcrumbs as crumb, i}
-					{#if i > 0}
-						<span class="text-white/20">/</span>
-					{/if}
-					{#if i < $breadcrumbs.length - 1}
-						<button
-							onclick={() => navigateToBreadcrumb(i)}
-							class="text-white/40 hover:text-tw-neon cursor-pointer transition-colors duration-150"
-						>
-							{crumb.name}
-						</button>
-					{:else}
-						<span class="text-white">{crumb.name}</span>
-					{/if}
-				{/each}
-			</nav>
+			<div class="group/breadcrumb relative flex flex-col gap-1">
+				<nav class="flex items-center gap-1.5" style="font-size: {$user?.preferences.breadcrumb_size ?? 14}px">
+					{#each $breadcrumbs as crumb, i}
+						{#if i > 0}
+							<span class="text-white/20">/</span>
+						{/if}
+						{#if i < $breadcrumbs.length - 1}
+							<button
+								onclick={() => navigateToBreadcrumb(i)}
+								data-type="folder"
+								data-id={crumb.id ?? ''}
+								class="px-2 py-1 rounded-lg transition-all duration-150 cursor-pointer
+								       {dragging && dropTargetFolderId === (crumb.id ?? null) 
+								       ? 'bg-tw-neon text-tw-darkblue font-bold shadow-[0_0_12px_rgba(0,245,255,0.4)] scale-110' 
+								       : 'text-white/40 hover:text-tw-neon hover:bg-white/5'}"
+							>
+								{crumb.name}
+							</button>
+						{:else}
+							<span class="text-white px-2 py-1">{crumb.name}</span>
+						{/if}
+					{/each}
+				</nav>
+				<!-- Resize handle -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div 
+					onpointerdown={startResize}
+					class="h-1 w-full bg-tw-neon/0 hover:bg-tw-neon/30 active:bg-tw-neon/50 cursor-ns-resize transition-colors duration-150 rounded-full"
+				></div>
+			</div>
 		{:else}
-			<div></div>
+			<div class="group/breadcrumb relative flex flex-col gap-1">
+				<div class="h-6"></div> <!-- spacer -->
+				<!-- Resize handle -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div 
+					onpointerdown={startResize}
+					class="h-1 w-24 bg-tw-neon/0 hover:bg-tw-neon/30 active:bg-tw-neon/50 cursor-ns-resize transition-colors duration-150 rounded-full"
+				></div>
+			</div>
 		{/if}
 
 		<!-- Edit mode toggle (desktop only) -->
-		<button
-			onclick={() => (editMode = !editMode)}
-			class="hidden md:block px-3 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 cursor-pointer
-			       {editMode
-					? 'bg-tw-neon text-tw-darkblue hover:bg-tw-neon/90'
-					: 'bg-white/5 text-white/60 hover:text-white hover:bg-white/10'}"
-		>
-			{editMode ? 'Done' : 'Edit'}
-		</button>
+		<div class="flex items-center gap-3">
+			{#if selectedIds.size > 0}
+				<div class="px-3 py-1.5 rounded-lg bg-tw-purple/20 border border-tw-purple/30 text-tw-purple-light text-sm font-medium animate-in fade-in slide-in-from-right-4 duration-200">
+					{selectedIds.size} {selectedIds.size === 1 ? 'item' : 'items'} selected
+				</div>
+			{/if}
+
+			<button
+				onclick={() => (editMode = !editMode)}
+				class="hidden md:block px-3 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 cursor-pointer
+				       {editMode
+						? 'bg-tw-neon text-tw-darkblue hover:bg-tw-neon/90'
+						: 'bg-white/5 text-white/60 hover:text-white hover:bg-white/10'}"
+			>
+				{editMode ? 'Done' : 'Edit'}
+			</button>
+		</div>
 	</div>
 
 	<FileGrid
@@ -233,14 +324,26 @@
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		onpointerdown={(e) => onPointerDown(e, folder.id, 'folder')}
-		class="transition-transform duration-150 rounded-xl
+		onclickcapture={(e) => { if (editMode) { e.preventDefault(); e.stopPropagation(); } }}
+		data-id={folder.id}
+		data-type="folder"
+		class="transition-all duration-150 rounded-xl relative group/item
 		       {editMode ? 'cursor-grab active:cursor-grabbing' : ''}
-		       {dragging && dragId === folder.id ? 'opacity-30' : ''}
-		       {dropTargetFolderId === folder.id ? 'ring-2 ring-tw-neon scale-105' : ''}"
+		       {dragging && selectedIds.has(folder.id) ? 'opacity-30' : ''}
+		       {selectedIds.has(folder.id) ? 'ring-2 ring-tw-neon bg-tw-neon/10 scale-[1.02]' : ''}
+		       {dragging && dropTargetFolderId === folder.id ? 'ring-2 ring-tw-neon scale-105 bg-tw-neon/20' : ''}"
 	>
 		<div class={editMode ? 'pointer-events-none' : ''}>
 			<FolderCard name={folder.name} id={folder.id} />
 		</div>
+
+		{#if selectedIds.has(folder.id)}
+			<div class="absolute top-2 right-2 w-5 h-5 bg-tw-neon text-tw-darkblue rounded-full flex items-center justify-center shadow-lg animate-in zoom-in duration-200">
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
+					<path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" />
+				</svg>
+			</div>
+		{/if}
 	</div>
 {/snippet}
 
@@ -248,11 +351,24 @@
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		onpointerdown={(e) => onPointerDown(e, file.id, 'file')}
-		class="{editMode ? 'cursor-grab active:cursor-grabbing' : ''}
-		       {dragging && dragId === file.id ? 'opacity-30' : ''}"
+		onclickcapture={(e) => { if (editMode) { e.preventDefault(); e.stopPropagation(); } }}
+		data-id={file.id}
+		data-type="file"
+		class="transition-all duration-150 rounded-2xl relative group/item
+		       {editMode ? 'cursor-grab active:cursor-grabbing' : ''}
+		       {dragging && selectedIds.has(file.id) ? 'opacity-30' : ''}
+		       {selectedIds.has(file.id) ? 'ring-2 ring-tw-neon bg-tw-neon/10 scale-[1.02]' : ''}"
 	>
 		<div class={editMode ? 'pointer-events-none' : ''}>
 			<ImageCard name={file.name} id={file.id} url={file.url} />
 		</div>
+
+		{#if selectedIds.has(file.id)}
+			<div class="absolute top-2 right-2 w-6 h-6 bg-tw-neon text-tw-darkblue rounded-full flex items-center justify-center shadow-lg animate-in zoom-in duration-200">
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
+					<path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" />
+				</svg>
+			</div>
+		{/if}
 	</div>
 {/snippet}

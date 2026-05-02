@@ -1,23 +1,13 @@
 <script lang="ts">
-	import ContextMenu from './ContextMenu.svelte';
-	import RenameModal from './RenameModal.svelte';
-	import ImageViewer from './ImageViewer.svelte';
 	import { fetchFiles } from '$lib/stores/files';
 	import { fetchClient, op } from '$lib/api';
+	import { openContextMenu, openRenameModal, openImageViewer } from '$lib/stores/ui';
 
 	let { name, id, url, readonly = false } = $props<{ name: string; id: string; url: string; readonly?: boolean }>();
-	let viewerOpen = $state(false);
-
-	let menuOpen = $state(false);
-	let menuX = $state(0);
-	let menuY = $state(0);
-	let showRename = $state(false);
 
 	function onContextMenu(e: MouseEvent) {
 		e.preventDefault();
-		menuX = e.clientX;
-		menuY = e.clientY;
-		menuOpen = true;
+		openContextMenu(e.clientX, e.clientY, menuItems);
 	}
 
 	async function submitRename(newName: string): Promise<string | null> {
@@ -62,7 +52,7 @@
 				{
 					label: 'Rename',
 					icon: 'rename',
-					action: () => (showRename = true)
+					action: () => openRenameModal('Rename File', name, submitRename)
 				},
 				{
 					label: 'Delete',
@@ -75,7 +65,7 @@
 
 <button
 	type="button"
-	onclick={() => (viewerOpen = true)}
+	onclick={() => openImageViewer(id, name, url, readonly)}
 	oncontextmenu={onContextMenu}
 	class="group flex flex-col items-center gap-3 p-3 rounded-2xl
 	       bg-white/5 border border-white/10
@@ -85,6 +75,7 @@
 	<img
 		src={url}
 		alt={name}
+		loading="lazy"
 		class="w-full aspect-square object-cover rounded-xl pointer-events-none"
 	/>
 	<span
@@ -93,9 +84,3 @@
 		{name}
 	</span>
 </button>
-
-<ContextMenu bind:open={menuOpen} x={menuX} y={menuY} items={menuItems} />
-
-<RenameModal bind:open={showRename} title="Rename File" currentName={name} onSubmit={submitRename} />
-
-<ImageViewer bind:open={viewerOpen} {id} {name} {url} {readonly} />

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { user } from '$lib/stores/auth';
+	import { user, updatePreference } from '$lib/stores/auth';
 	import Modal from '$lib/components/Modal.svelte';
 	import { op } from '$lib/api';
 
@@ -64,7 +64,7 @@
 		} catch (e: any) {
 			passwordError = e?.message || 'Request failed';
 		} finally {
-			passwordSaving = false;
+			usernameSaving = false;
 		}
 	}
 </script>
@@ -72,7 +72,7 @@
 <div class="p-8 max-w-3xl">
 	<h1 class="text-xl font-semibold text-white mb-6">Settings</h1>
 
-	<section class="rounded-2xl border border-white/10 bg-tw-darkblue/40 p-6">
+	<section class="rounded-2xl border border-white/10 bg-tw-darkblue/40 p-6 mb-6">
 		<h2 class="text-sm uppercase tracking-wider text-white/40 mb-4">Profile</h2>
 
 		<div class="flex items-center gap-4 mb-6">
@@ -128,6 +128,31 @@
 				</div>
 			</div>
 		</dl>
+	</section>
+
+	<section class="rounded-2xl border border-white/10 bg-tw-darkblue/40 p-6">
+		<h2 class="text-sm uppercase tracking-wider text-white/40 mb-4">Preferences</h2>
+
+		<div class="flex flex-col gap-6">
+			<div class="flex flex-col gap-2">
+				<div class="flex items-center justify-between">
+					<label for="breadcrumb-size" class="text-sm text-white/70">Breadcrumb Font Size</label>
+					<span class="text-xs font-mono text-tw-neon">{$user?.preferences.breadcrumb_size}px</span>
+				</div>
+				<input
+					id="breadcrumb-size"
+					type="range"
+					min="10"
+					max="48"
+					value={$user?.preferences.breadcrumb_size}
+					oninput={(e) => updatePreference('breadcrumb_size', parseInt(e.currentTarget.value))}
+					class="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-tw-neon"
+				/>
+				<p class="text-[10px] text-white/30">
+					You can also resize the breadcrumbs directly by dragging the handle below them in the library.
+				</p>
+			</div>
+		</div>
 	</section>
 </div>
 

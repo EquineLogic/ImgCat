@@ -52,8 +52,8 @@ pub enum OpArgs {
     Reorder {
         ids: Vec<Uuid>,
     },
-    MoveEntry {
-        id: Uuid,
+    MoveEntries {
+        ids: Vec<Uuid>,
         parent_id: Option<Uuid>,
     },
     ListTrash,
@@ -87,6 +87,10 @@ pub enum OpArgs {
     GetTrashRetention,
     SetTrashRetention {
         days: i32,
+    },
+    GetPreferences,
+    SetPreferences {
+        preferences: UserPreferences,
     },
 
     // Groups
@@ -123,7 +127,7 @@ impl OpArgs {
             Self::RenameFile { .. }       => Some("fs.rename_file"),
             Self::DeleteFile { .. }       => Some("fs.delete_file"),
             Self::Reorder { .. }          => Some("fs.reorder_entries"),
-            Self::MoveEntry { .. }        => Some("fs.move_entry"),
+            Self::MoveEntries { .. }        => Some("fs.move_entries"),
             Self::ListTrash               => Some("fs.list_trash"),
             Self::RestoreEntry { .. }     => Some("fs.restore_entry"),
             Self::DeleteTrashEntry { .. } => Some("fs.delete_trash_entry"),
@@ -138,6 +142,8 @@ impl OpArgs {
             Self::ChangePassword { .. }       => None, // user-only op
             Self::GetTrashRetention           => Some("auth.get_trash_retention"),
             Self::SetTrashRetention { .. }    => Some("auth.set_trash_retention"),
+            Self::GetPreferences { ..}        => None, // user-only op
+            Self::SetPreferences { .. }      => None, // user-only op
 
             // --- Groups ---
             Self::CreateGroup { .. }          => None, // user-only op
@@ -183,6 +189,9 @@ pub enum OpSuccess {
     },
     TrashRetention {
         days: i32,
+    },
+    Preferences {
+        preferences: UserPreferences,
     },
 
     // Groups
@@ -596,63 +605,90 @@ impl AppData {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
-                let mut tx = self.pool.begin().await?;
+                // Single query for high-performance bulk reorder.
+                // WITH ORDINALITY guarantees the 'rn' matches the array index.
+                let res = sqlx::query(
+                    "UPDATE filesystem
+                     SET sort_order = updates.rn, updated_at = NOW()
+                     FROM unnest($1::uuid[]) WITH ORDINALITY as updates(id, rn)
+                     WHERE filesystem.id = updates.id 
+                       AND filesystem.owner_id = $2 
+                       AND filesystem.deleted_at IS NULL",
+                )
+                .bind(&ids)
+                .bind(uid.account_id())
+                .execute(&self.pool)
+                .await?;
 
-                for (i, id) in ids.iter().enumerate() {
-                    sqlx::query(
-                        "UPDATE filesystem SET sort_order = $1 WHERE id = $2 AND owner_id = $3 AND deleted_at IS NULL"
-                    )
-                    .bind((i + 1) as i32)
-                    .bind(id)
-                    .bind(uid.account_id())
-                    .execute(&mut *tx)
-                    .await?;
+                if res.rows_affected() != ids.len() as u64 {
+                    return Err(OpError::EntityNotFound {
+                        reason: "One or more entries could not be found or do not belong to you",
+                    });
                 }
 
-                tx.commit().await?;
                 Ok(OpSuccess::Ok)
             }
 
-            OpArgs::MoveEntry { id, parent_id } => {
+            OpArgs::MoveEntries { ids, parent_id } => {
                 let Some(uid) = user_id else {
                     return Err(OpError::UserNotLoggedIn);
                 };
 
+                // Single query for high-performance bulk move
                 let res = sqlx::query(
-                    "UPDATE filesystem
-                     SET parent_id = $1,
-                         sort_order = COALESCE((SELECT MAX(sort_order) FROM filesystem WHERE parent_id IS NOT DISTINCT FROM $1 AND owner_id = $3 AND deleted_at IS NULL), 0) + 1,
-                         updated_at = NOW()
-                     WHERE id = $2 AND owner_id = $3 AND deleted_at IS NULL
-                       AND id <> $1
-                       AND ($1 IS NULL OR EXISTS (
-                           SELECT 1 FROM filesystem p
-                           WHERE p.id = $1
-                             AND p.owner_id = $3
-                             AND p.type = 'folder'
-                             AND p.deleted_at IS NULL
-                             AND NOT (p.path <@ (SELECT path FROM filesystem WHERE id = $2 AND deleted_at IS NULL))
-                       ))",
+                    r#"
+                    WITH target AS (
+                        -- Validate target existence and type once
+                        SELECT path FROM filesystem 
+                        WHERE id = $1 AND owner_id = $3 AND type = 'folder' AND deleted_at IS NULL
+                    ),
+                    current_max AS (
+                        -- Find the starting sort order once
+                        SELECT COALESCE(MAX(sort_order), 0) as val
+                        FROM filesystem 
+                        WHERE parent_id IS NOT DISTINCT FROM $1 AND owner_id = $3 AND deleted_at IS NULL
+                    )
+                    UPDATE filesystem
+                    SET parent_id = $1,
+                        sort_order = (SELECT val FROM current_max) + moves.rn,
+                        updated_at = NOW()
+                    FROM (
+                        -- Map each ID to a sequence number
+                        SELECT unnest($2::uuid[]) as id, row_number() OVER () as rn
+                    ) as moves
+                    WHERE filesystem.id = moves.id 
+                      AND filesystem.owner_id = $3 
+                      AND filesystem.deleted_at IS NULL
+                      -- Safety checks:
+                      AND (
+                        $1 IS NULL OR (
+                            EXISTS (SELECT 1 FROM target) AND 
+                            -- Recursive move protection: destination cannot be a descendant of any moved item
+                            NOT EXISTS (SELECT 1 FROM target t WHERE t.path <@ filesystem.path)
+                        )
+                      )
+                    RETURNING filesystem.id
+                    "#,
                 )
                 .bind(parent_id)
-                .bind(id)
+                .bind(&ids)
                 .bind(uid.account_id())
-                .execute(&self.pool)
+                .fetch_all(&self.pool)
                 .await
                 .map_err(|e| {
                     if let sqlx::Error::Database(ref db_err) = e {
                         if db_err.is_unique_violation() {
                             return OpError::EntityConflict {
-                                reason: "An item with that name already exists in the target folder",
+                                reason: "An item with a conflicting name already exists in the target folder",
                             };
                         }
                     }
                     OpError::Generic(e.into())
                 })?;
 
-                if res.rows_affected() == 0 {
+                if res.len() != ids.len() {
                     return Err(OpError::EntityNotFound {
-                        reason: "Entry or target not found",
+                        reason: "One or more entries could not be moved (target not found or recursive move detected)",
                     });
                 }
 
@@ -1375,6 +1411,40 @@ impl AppData {
                 sqlx::query("UPDATE users SET trash_retention_days = $1 WHERE id = $2")
                     .bind(days)
                     .bind(uid.account_id())
+                    .execute(&self.pool)
+                    .await?;
+
+                Ok(OpSuccess::Ok)
+            }
+
+            OpArgs::GetPreferences => {
+                let Some(uid) = user_id else {
+                    return Err(OpError::UserNotLoggedIn);
+                };
+                if !uid.is_user() {
+                    return Err(OpError::UserOnlyOp)
+                }
+
+                let row = sqlx::query("SELECT preferences FROM users WHERE id = $1")
+                    .bind(uid.real_account_id())
+                    .fetch_one(&self.pool)
+                    .await?;
+
+                let preferences: sqlx::types::Json<UserPreferences> = row.get("preferences");
+                Ok(OpSuccess::Preferences { preferences: preferences.0 })
+            }
+
+            OpArgs::SetPreferences { preferences } => {
+                let Some(uid) = user_id else {
+                    return Err(OpError::UserNotLoggedIn);
+                };
+                if !uid.is_user() {
+                    return Err(OpError::UserOnlyOp)
+                }
+
+                sqlx::query("UPDATE users SET preferences = $1 WHERE id = $2")
+                    .bind(sqlx::types::Json(preferences))
+                    .bind(uid.real_account_id())
                     .execute(&self.pool)
                     .await?;
 

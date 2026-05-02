@@ -46,21 +46,37 @@
 {:else}
 	{#if folders.length > 0}
 		<div class="flex flex-wrap gap-2 mb-6" data-droppable={foldersDroppable}>
-			{#each folders as folder (folder.id)}
-				<div animate:flip={{ duration: 200 }}>
-					{@render folderItem(folder)}
-				</div>
-			{/each}
+			{#if folders.length < 100}
+				{#each folders as folder (folder.id)}
+					<div animate:flip={{ duration: 200 }}>
+						{@render folderItem(folder)}
+					</div>
+				{/each}
+			{:else}
+				{#each folders as folder (folder.id)}
+					<div>
+						{@render folderItem(folder)}
+					</div>
+				{/each}
+			{/if}
 		</div>
 	{/if}
 
 	{#if files.length > 0}
 		<div class="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-4" data-droppable={filesDroppable}>
-			{#each files as file (file.id)}
-				<div animate:flip={{ duration: 200 }}>
-					{@render fileItem(file)}
-				</div>
-			{/each}
+			{#if files.length < 100}
+				{#each files as file (file.id)}
+					<div animate:flip={{ duration: 200 }}>
+						{@render fileItem(file)}
+					</div>
+				{/each}
+			{:else}
+				{#each files as file (file.id)}
+					<div>
+						{@render fileItem(file)}
+					</div>
+				{/each}
+			{/if}
 		</div>
 	{/if}
 {/if}

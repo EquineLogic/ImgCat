@@ -39,13 +39,22 @@ impl Session {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct UserPreferences {
+    #[serde(default = "default_breadcrumb_size")]
+    pub breadcrumb_size: i32,
+}
+
+fn default_breadcrumb_size() -> i32 { 14 }
+
 #[derive(Serialize)]
 pub struct LoggedInUser {
     pub user_id: Uuid,
     pub user_type: String,
     pub username: String,
     pub session_id: Uuid,
-    pub group: Option<(Uuid, String)>
+    pub group: Option<(Uuid, String)>,
+    pub preferences: UserPreferences,
 }
 
 impl LoggedInUser {
@@ -57,10 +66,11 @@ impl LoggedInUser {
             username: String,
             user_type: String,
             session_id: Uuid,
+            preferences: sqlx::types::Json<UserPreferences>,
         }
 
         let Some(row) = sqlx::query_as::<_, Row>(
-            "SELECT u.id, u.user_type, u.username, s.id AS session_id FROM sessions s JOIN users u ON s.user_id = u.id WHERE s.token = $1 AND s.expires_at > NOW()"
+            "SELECT u.id, u.user_type, u.username, s.id AS session_id, u.preferences FROM sessions s JOIN users u ON s.user_id = u.id WHERE s.token = $1 AND s.expires_at > NOW()"
         )
         .bind(&session_token)
         .fetch_optional(pool)
@@ -90,7 +100,14 @@ impl LoggedInUser {
             None => None,
         };
 
-        Ok(Some(LoggedInUser { user_id: row.id, username: row.username, user_type: row.user_type, session_id: row.session_id, group: group_data }))
+        Ok(Some(LoggedInUser { 
+            user_id: row.id, 
+            username: row.username, 
+            user_type: row.user_type, 
+            session_id: row.session_id, 
+            group: group_data,
+            preferences: row.preferences.0,
+        }))
     }
 
     fn get_auth_hdr<'a>(parts: &'a axum::http::request::Parts) -> Option<&'a str> {

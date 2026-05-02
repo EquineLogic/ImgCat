@@ -39,6 +39,8 @@ export function resetToRoot() {
 	currentFolderId.set(null);
 	breadcrumbs.set([{ id: null, name: 'My Library' }]);
 	saveState();
+	fetchFolders(null);
+	fetchFiles(null);
 }
 
 export function openFolder(id: string, name: string) {

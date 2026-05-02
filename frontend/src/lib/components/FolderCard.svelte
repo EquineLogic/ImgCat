@@ -1,8 +1,7 @@
 <script lang="ts">
-	import ContextMenu from './ContextMenu.svelte';
-	import RenameModal from './RenameModal.svelte';
 	import { fetchFolders, openFolder } from '$lib/stores/folders';
 	import { op } from '$lib/api';
+	import { openContextMenu, openRenameModal } from '$lib/stores/ui';
 
 	let { name, id, readonly = false } = $props<{ name: string; id: string; readonly?: boolean }>();
 
@@ -10,16 +9,9 @@
 		openFolder(id, name);
 	}
 
-	let menuOpen = $state(false);
-	let menuX = $state(0);
-	let menuY = $state(0);
-	let showRename = $state(false);
-
 	function onContextMenu(e: MouseEvent) {
 		e.preventDefault();
-		menuX = e.clientX;
-		menuY = e.clientY;
-		menuOpen = true;
+		openContextMenu(e.clientX, e.clientY, menuItems);
 	}
 
 	async function submitRename(newName: string): Promise<string | null> {
@@ -45,7 +37,7 @@
 				{
 					label: 'Rename',
 					icon: 'rename',
-					action: () => (showRename = true)
+					action: () => openRenameModal('Rename Folder', name, submitRename)
 				},
 				{
 					label: 'Delete',
@@ -62,7 +54,7 @@
 	class="group flex items-center gap-3 px-4 py-3 rounded-xl
 	       bg-white/5 border border-white/10
 	       hover:bg-tw-purple/10 hover:border-tw-purple/30
-	       cursor-pointer transition-all duration-200"
+	       cursor-pointer transition-all duration-200 w-full"
 >
 	<svg
 		xmlns="http://www.w3.org/2000/svg"
@@ -80,7 +72,3 @@
 		{name}
 	</span>
 </button>
-
-<ContextMenu bind:open={menuOpen} x={menuX} y={menuY} items={menuItems} />
-
-<RenameModal bind:open={showRename} title="Rename Folder" currentName={name} onSubmit={submitRename} />

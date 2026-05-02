@@ -1,4 +1,5 @@
 mod move_to_groups;
+mod add_preferences;
 use futures::future::BoxFuture;
 use log::info;
 
@@ -9,8 +10,9 @@ pub struct Migration {
     pub up: fn(sqlx::Pool<sqlx::Postgres>) -> BoxFuture<'static, Result<(), crate::Error>>,
 }
 
-pub const MIGRATIONS: [Migration; 1] = [
-    move_to_groups::MIGRATION
+pub const MIGRATIONS: [Migration; 2] = [
+    move_to_groups::MIGRATION,
+    add_preferences::MIGRATION
 ];
 
 pub async fn apply_migrations(pool: sqlx::PgPool) -> Result<(), crate::Error> {

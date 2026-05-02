@@ -9,7 +9,9 @@
 	import { fetchClient, op } from '$lib/api';
 	import { groupContext } from '$lib/stores/groupContext';
 	import { pendingInvites } from '$lib/stores/groups';
+	import { uploadModal, openUploadModal } from '$lib/stores/ui';
 	import { API_BASE } from '$lib/config';
+	import { onDestroy } from 'svelte';
 
 	let { mode = 'home' }: { mode?: 'home' | 'settings' } = $props();
 
@@ -23,10 +25,33 @@
 	let folderName = $state('');
 	let folderError = $state('');
 
-	let showUpload = $state(false);
-	let uploadFiles: File[] = $state([]);
+	let uploadFiles: { file: File; url: string }[] = $state([]);
 	let uploadError = $state('');
 	let uploading = $state(false);
+
+	$effect(() => {
+		if ($uploadModal.files) {
+			handleFileList($uploadModal.files);
+			uploadModal.update(s => ({ ...s, files: null }));
+		}
+	});
+
+	function handleFileList(files: FileList) {
+		const newItems = Array.from(files).map((f) => ({
+			file: f,
+			url: URL.createObjectURL(f)
+		}));
+		uploadFiles = [...uploadFiles, ...newItems];
+	}
+
+	function clearUploads() {
+		uploadFiles.forEach((f) => URL.revokeObjectURL(f.url));
+		uploadFiles = [];
+	}
+
+	onDestroy(() => {
+		clearUploads();
+	});
 
 	let mobileOpen = $state(false);
 	function closeMobile() {
@@ -59,7 +84,7 @@
 						label: 'Upload Image',
 						icon: 'image-plus',
 						action: () => {
-							showUpload = true;
+							openUploadModal();
 							closeMobile();
 						}
 					},
@@ -124,12 +149,14 @@
 		const input = e.target as HTMLInputElement;
 		const files = input.files;
 		if (files && files.length > 0) {
-			uploadFiles = [...uploadFiles, ...Array.from(files)];
+			handleFileList(files);
 		}
 		input.value = '';
 	}
 
 	function removeFile(index: number) {
+		const item = uploadFiles[index];
+		if (item) URL.revokeObjectURL(item.url);
 		uploadFiles = uploadFiles.filter((_, i) => i !== index);
 	}
 
@@ -139,7 +166,7 @@
 		uploadError = '';
 		try {
 			const gid = $groupContext?.group_id;
-			for (const file of uploadFiles) {
+			for (const { file } of uploadFiles) {
 				const form = new FormData();
 				form.append('file', file);
 				form.append('name', file.name.replace(/\.[^.]+$/, ''));
@@ -156,9 +183,9 @@
 					return;
 				}
 			}
-			uploadFiles = [];
+			clearUploads();
 			uploadError = '';
-			showUpload = false;
+			$uploadModal.open = false;
 			await fetchFiles();
 		} catch (e) {
 			uploadError = 'Upload failed';
@@ -202,152 +229,62 @@
 	}
 </script>
 
-{#snippet navIcon(icon: string)}
-	{#if icon === 'folder-plus'}
-		<svg
-			xmlns="http://www.w3.org/2000/svg"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			stroke-width="1.8"
-			stroke-linecap="round"
-			stroke-linejoin="round"
-			class="w-5 h-5 shrink-0"
-		>
-			<path d="M12 10v6M9 13h6" />
-			<path d="M2 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2z" />
-		</svg>
-	{:else if icon === 'image-plus'}
-		<svg
-			xmlns="http://www.w3.org/2000/svg"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			stroke-width="1.8"
-			stroke-linecap="round"
-			stroke-linejoin="round"
-			class="w-5 h-5 shrink-0"
-		>
-			<rect x="3" y="3" width="18" height="18" rx="2" />
-			<circle cx="8.5" cy="8.5" r="1.5" />
-			<path d="M21 15l-5-5L5 21" />
-			<line x1="16" y1="5" x2="16" y2="11" />
-			<line x1="13" y1="8" x2="19" y2="8" />
-		</svg>
-	{:else if icon === 'trash'}
-		<svg
-			xmlns="http://www.w3.org/2000/svg"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			stroke-width="1.8"
-			stroke-linecap="round"
-			stroke-linejoin="round"
-			class="w-5 h-5 shrink-0"
-		>
-			<path d="M3 6h18" />
-			<path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-			<path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-		</svg>
-	{:else if icon === 'user'}
-		<svg
-			xmlns="http://www.w3.org/2000/svg"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			stroke-width="1.8"
-			stroke-linecap="round"
-			stroke-linejoin="round"
-			class="w-5 h-5 shrink-0"
-		>
-			<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-			<circle cx="12" cy="7" r="4" />
-		</svg>
-	{:else if icon === 'broom'}
-		<svg
-			xmlns="http://www.w3.org/2000/svg"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			stroke-width="1.8"
-			stroke-linecap="round"
-			stroke-linejoin="round"
-			class="w-5 h-5 shrink-0"
-		>
-			<path d="M19.4 14.6 9.4 4.6a2 2 0 0 0-2.8 2.8l10 10" />
-			<path d="M8 13 3 18l3 3 5-5" />
-			<path d="M14 22h8" />
-			<path d="M18 18l-4 4" />
-		</svg>
-	{:else if icon === 'arrow-left'}
-		<svg
-			xmlns="http://www.w3.org/2000/svg"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			stroke-width="1.8"
-			stroke-linecap="round"
-			stroke-linejoin="round"
-			class="w-5 h-5 shrink-0"
-		>
-			<path d="M19 12H5" />
-			<path d="M12 19l-7-7 7-7" />
-		</svg>
-	{:else if icon === 'share'}
-		<svg
-			xmlns="http://www.w3.org/2000/svg"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			stroke-width="1.8"
-			stroke-linecap="round"
-			stroke-linejoin="round"
-			class="w-5 h-5 shrink-0"
-		>
-			<circle cx="18" cy="5" r="3" />
-			<circle cx="6" cy="12" r="3" />
-			<circle cx="18" cy="19" r="3" />
-			<line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-			<line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-		</svg>
-	{:else if icon === 'library'}
-		<svg
-			xmlns="http://www.w3.org/2000/svg"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			stroke-width="1.8"
-			stroke-linecap="round"
-			stroke-linejoin="round"
-			class="w-5 h-5 shrink-0"
-		>
-			<rect x="3" y="3" width="7" height="7" rx="1" />
-			<rect x="14" y="3" width="7" height="7" rx="1" />
-			<rect x="3" y="14" width="7" height="7" rx="1" />
-			<rect x="14" y="14" width="7" height="7" rx="1" />
-		</svg>
-	{:else if icon === 'group'}
-		<svg
-			xmlns="http://www.w3.org/2000/svg"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			stroke-width="1.8"
-			stroke-linecap="round"
-			stroke-linejoin="round"
-			class="w-5 h-5 shrink-0"
-		>
-			<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-			<circle cx="9" cy="7" r="4" />
-			<path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-			<path d="M16 3.13a4 4 0 0 1 0 7.75" />
-		</svg>
-	{/if}
-{/snippet}
-
 {#if dragging}
 	<div class="fixed inset-0 z-50 cursor-col-resize"></div>
 {/if}
+
+{#snippet navIcon(icon: string)}
+	<svg
+		xmlns="http://www.w3.org/2000/svg"
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		stroke-width="1.8"
+		stroke-linecap="round"
+		stroke-linejoin="round"
+		class="w-5 h-5 shrink-0"
+	>
+		{#if icon === 'folder-plus'}
+			<path d="M12 10v6" />
+			<path d="M9 13h6" />
+			<path
+				d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+			/>
+		{:else if icon === 'image-plus'}
+			<path d="M16 5V11" />
+			<path d="M13 8H19" />
+			<rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+			<circle cx="8.5" cy="8.5" r="1.5" />
+			<path d="M21 15l-5-5L5 21" />
+		{:else if icon === 'library'}
+			<path d="m16 6 4 14" />
+			<path d="M12 6v14" />
+			<path d="M8 8v12" />
+			<path d="M4 4v16" />
+		{:else if icon === 'group'}
+			<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+			<circle cx="9" cy="7" r="4" />
+			<path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+			<path d="M16 3.13a4 4 0 0 1 0 7.75" />
+		{:else if icon === 'arrow-left'}
+			<path d="m12 19-7-7 7-7" />
+			<path d="M19 12H5" />
+		{:else if icon === 'user'}
+			<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+			<circle cx="12" cy="7" r="4" />
+		{:else if icon === 'broom'}
+			<path d="m11 15 2 2" />
+			<path d="m15 11 2 2" />
+			<path d="m5 21 6-6" />
+			<path d="m19 7-6 6" />
+			<path d="M21 5v2a14 14 0 0 1-14 14h-2l1-4a14 14 0 0 1 14-14h1Z" />
+		{:else if icon === 'trash'}
+			<path d="M3 6h18" />
+			<path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+			<path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+		{/if}
+	</svg>
+{/snippet}
 
 <!-- Mobile top bar (hidden on md+) -->
 <div class="md:hidden fixed top-0 left-0 right-0 z-40 bg-tw-darkblue border-b border-white/10">
@@ -710,7 +647,7 @@
 	</form>
 </Modal>
 
-<Modal bind:open={showUpload} title="Upload Images">
+<Modal bind:open={$uploadModal.open} title="Upload Images">
 	<div class="flex flex-col gap-4">
 		<label
 			class="flex flex-col items-center justify-center gap-2 p-6 rounded-xl
@@ -737,16 +674,16 @@
 
 		{#if uploadFiles.length > 0}
 			<div class="grid grid-cols-3 gap-2 max-h-60 overflow-y-auto">
-				{#each uploadFiles as file, i}
+				{#each uploadFiles as item, i (item.url)}
 					<div class="relative group">
-						<img src={URL.createObjectURL(file)} alt={file.name} class="w-full h-20 rounded-lg object-cover" />
+						<img src={item.url} alt={item.file.name} class="w-full h-20 rounded-lg object-cover" />
 						<button
 							onclick={() => removeFile(i)}
 							class="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white/80
 							       text-xs flex items-center justify-center opacity-0 group-hover:opacity-100
 							       transition-opacity cursor-pointer"
 						>&times;</button>
-						<span class="text-[10px] text-white/40 truncate block mt-0.5">{file.name}</span>
+						<span class="text-[10px] text-white/40 truncate block mt-0.5">{item.file.name}</span>
 					</div>
 				{/each}
 			</div>
